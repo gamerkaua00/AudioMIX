@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect } from 'react';
-import * as Tone from 'tone';
 import { 
   Upload, Play, Pause, Download, Share2, Edit2, Trash2, 
   MicOff, Settings2, FolderDown, Activity, Check,
@@ -14,12 +13,23 @@ function audioBufferToWav(buffer) {
   const bufferArray = new ArrayBuffer(44 + length);
   const view = new DataView(bufferArray);
   const channels = [];
-  let sample, offset = 0, pos = 0;
+  let sample;
+  let offset = 0;
+  let pos = 0;
 
-  setUint32(0x46464952); setUint32(36 + length); setUint32(0x45564157);
-  setUint32(0x20746d66); setUint32(16); setUint16(1); setUint16(numOfChan);
-  setUint32(sampleRate); setUint32(sampleRate * 2 * numOfChan); setUint16(numOfChan * 2);
-  setUint16(16); setUint32(0x61746164); setUint32(length);
+  setUint32(0x46464952); // "RIFF"
+  setUint32(36 + length);
+  setUint32(0x45564157); // "WAVE"
+  setUint32(0x20746d66); // "fmt " chunk
+  setUint32(16); // length = 16
+  setUint16(1); // PCM (uncompressed)
+  setUint16(numOfChan);
+  setUint32(sampleRate);
+  setUint32(sampleRate * 2 * numOfChan); // avg. bytes/sec
+  setUint16(numOfChan * 2); // block-align
+  setUint16(16); // 16-bit
+  setUint32(0x61746164); // "data" - chunk
+  setUint32(length);
 
   for (let i = 0; i < buffer.numberOfChannels; i++) {
     channels.push(buffer.getChannelData(i));
@@ -49,29 +59,26 @@ export default function App() {
   const [file, setFile] = useState(null);
   const [fileName, setFileName] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
-  const [pitch, setPitch] = useState(0); 
+  const [pitch, setPitch] = useState(0); // -3 a 3
   const [removeVocals, setRemoveVocals] = useState(false);
   
-  // Estados de Renderização
+  // Estados de Renderização (Progresso)
   const [isProcessing, setIsProcessing] = useState(false);
   const [renderProgress, setRenderProgress] = useState(0);
 
-  // Referências do Motor Híbrido (Tone.js)
+  // Referências de Áudio Nativas
+  const audioContextRef = useRef(null);
+  const sourceNodeRef = useRef(null);
   const audioBufferRef = useRef(null);
-  const playerRef = useRef(null);
-  const pitchShiftRef = useRef(null);
-  const bypassGainRef = useRef(null);
-  const processedGainRef = useRef(null);
+  const startTimeRef = useRef(0);
+  const pausedAtRef = useRef(0);
 
-  // Limpa o áudio completamente ao trocar
-  const cleanupAudio = () => {
-    Tone.Transport.stop();
-    Tone.Transport.cancel(0);
-    if (playerRef.current) {
-      playerRef.current.dispose();
-      pitchShiftRef.current.dispose();
-      bypassGainRef.current.dispose();
-      processedGainRef.current.dispose();
+  const initAudioContext = () => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume();
     }
   };
 
@@ -79,176 +86,191 @@ export default function App() {
     const uploadedFile = e.target.files[0];
     if (!uploadedFile) return;
 
-    setIsProcessing(true);
-    setRenderProgress(0); // Usa a barra para o carregamento também!
-    
-    try {
-      cleanupAudio();
-      setFile(uploadedFile);
-      setFileName(uploadedFile.name.replace(/\.[^/.]+$/, ""));
-      setPitch(0);
+    setFile(uploadedFile);
+    setFileName(uploadedFile.name.replace(/\.[^/.]+$/, ""));
+    stopPreview(); 
+    setPitch(0);
+    setRemoveVocals(false);
+    pausedAtRef.current = 0;
+
+    initAudioContext();
+    const arrayBuffer = await uploadedFile.arrayBuffer();
+    const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
+    audioBufferRef.current = audioBuffer;
+  };
+
+  // --- MOTOR DE ÁUDIO NATIVO (Estável & Leve) ---
+  const applyAudioRouting = (ctx, source) => {
+    // Modo Vinil: Ajusta o Tom (Pitch) alterando a velocidade
+    const playbackRate = Math.pow(2, pitch / 12);
+    source.playbackRate.value = playbackRate;
+
+    if (!removeVocals) return source;
+
+    // Atenuação de Voz Inteligente (Preserva graves e agudos usando Mid/Side EQ)
+    if (audioBufferRef.current.numberOfChannels === 1) {
+      alert("Aviso: O ficheiro é Mono. O filtro de voz funciona melhor em ficheiros Estéreo.");
       setRemoveVocals(false);
-      setIsPlaying(false);
+      return source;
+    }
 
-      await Tone.start(); // Acorda o sistema de áudio
-      
-      const arrayBuffer = await uploadedFile.arrayBuffer();
-      const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer);
-      audioBufferRef.current = audioBuffer;
+    const splitter = ctx.createChannelSplitter(2);
+    source.connect(splitter);
 
-      // Monta o Grafo de Áudio com Tone.js (Efeito DJ Real-Time)
-      playerRef.current = new Tone.Player(audioBuffer).sync().start(0);
-      
-      // Phase Vocoder Profissional (windowSize 0.1 evita robotização extrema)
-      pitchShiftRef.current = new Tone.PitchShift({ pitch: 0, windowSize: 0.1 });
-      
-      // Separador Estéreo para Voz
-      const split = new Tone.MidSideSplit();
-      const merge = new Tone.MidSideMerge();
-      const vocalEq = new Tone.EQ3({ low: 0, mid: -25, high: 0 }); // Mata as vozes no canal central
-      
-      // Roteamento
-      bypassGainRef.current = new Tone.Gain(1).toDestination();
-      processedGainRef.current = new Tone.Gain(0).toDestination();
+    // Cria o canal MID (Centro)
+    const mid = ctx.createGain(); mid.gain.value = 0.5;
+    splitter.connect(mid, 0); splitter.connect(mid, 1);
 
-      playerRef.current.connect(pitchShiftRef.current);
-      
-      // Caminho Original
-      pitchShiftRef.current.connect(bypassGainRef.current);
-      
-      // Caminho Sem Voz
-      pitchShiftRef.current.connect(split);
-      split.mid.connect(vocalEq);
-      vocalEq.connect(merge.mid);
-      split.side.connect(merge.side);
-      merge.connect(processedGainRef.current);
+    // Cria o canal SIDE (Laterais - Instrumentos)
+    const sideL = ctx.createGain(); sideL.gain.value = 0.5;
+    const sideR = ctx.createGain(); sideR.gain.value = -0.5;
+    splitter.connect(sideL, 0); splitter.connect(sideR, 1);
+    const sideSum = ctx.createGain();
+    sideL.connect(sideSum); sideR.connect(sideSum);
 
-      // Desliga automaticamente ao chegar no fim da música
-      Tone.Transport.scheduleOnce(() => {
-        Tone.Transport.stop();
-        Tone.Transport.seconds = 0;
+    // Filtros para baixar a voz no canal MID
+    const eq1 = ctx.createBiquadFilter();
+    eq1.type = 'peaking'; eq1.frequency.value = 1200; eq1.Q.value = 0.7; eq1.gain.value = -22;
+    mid.connect(eq1);
+
+    const eq2 = ctx.createBiquadFilter();
+    eq2.type = 'peaking'; eq2.frequency.value = 3500; eq2.Q.value = 1.0; eq2.gain.value = -16;
+    eq1.connect(eq2);
+
+    const eq3 = ctx.createBiquadFilter();
+    eq3.type = 'peaking'; eq3.frequency.value = 300; eq3.Q.value = 1.2; eq3.gain.value = -10;
+    eq2.connect(eq3);
+
+    const merger = ctx.createChannelMerger(2);
+    
+    // Reconstrói a esquerda
+    const outL = ctx.createGain(); 
+    eq3.connect(outL); 
+    sideSum.connect(outL); 
+    outL.connect(merger, 0, 0);
+    
+    // Reconstrói a direita (Invertendo a fase do side)
+    const outR = ctx.createGain(); 
+    eq3.connect(outR); 
+    const sideInvert = ctx.createGain(); sideInvert.gain.value = -1; 
+    sideSum.connect(sideInvert); 
+    sideInvert.connect(outR); 
+    outR.connect(merger, 0, 1);
+
+    return merger;
+  };
+
+  const playPreview = () => {
+    if (!audioBufferRef.current) return;
+    initAudioContext();
+    const ctx = audioContextRef.current;
+
+    if (sourceNodeRef.current) sourceNodeRef.current.disconnect();
+
+    const source = ctx.createBufferSource();
+    source.buffer = audioBufferRef.current;
+    
+    const finalNode = applyAudioRouting(ctx, source);
+    finalNode.connect(ctx.destination);
+    
+    source.start(0, pausedAtRef.current);
+    startTimeRef.current = ctx.currentTime - pausedAtRef.current;
+    sourceNodeRef.current = source;
+    setIsPlaying(true);
+
+    source.onended = () => {
+      if (sourceNodeRef.current === source) {
         setIsPlaying(false);
-      }, audioBuffer.duration);
-
-    } catch (error) {
-      alert("Erro ao ler o ficheiro MP3.");
-    } finally {
-      setIsProcessing(false);
-    }
+        pausedAtRef.current = 0;
+      }
+    };
   };
 
-  // Aplica as mudanças de Tom INSTANTANEAMENTE
-  useEffect(() => {
-    if (pitchShiftRef.current) pitchShiftRef.current.pitch = pitch;
-  }, [pitch]);
-
-  // Aplica a remoção de voz INSTANTANEAMENTE
-  useEffect(() => {
-    if (bypassGainRef.current && processedGainRef.current) {
-      bypassGainRef.current.gain.rampTo(removeVocals ? 0 : 1, 0.1);
-      processedGainRef.current.gain.rampTo(removeVocals ? 1 : 0, 0.1);
-    }
-  }, [removeVocals]);
-
-  const togglePlay = async () => {
-    await Tone.start();
-    if (isPlaying) {
-      Tone.Transport.pause();
+  const stopPreview = () => {
+    if (sourceNodeRef.current && isPlaying) {
+      sourceNodeRef.current.stop();
+      pausedAtRef.current = audioContextRef.current.currentTime - startTimeRef.current;
       setIsPlaying(false);
-    } else {
-      Tone.Transport.start();
-      setIsPlaying(true);
     }
   };
 
-  // --- O SEGREDO: RENDERIZAÇÃO HÍBRIDA (Anti-Travamento no Telemóvel) ---
+  const togglePlay = () => {
+    if (isPlaying) stopPreview();
+    else playPreview();
+  };
+
+  useEffect(() => {
+    if (isPlaying) {
+      stopPreview();
+      setTimeout(() => playPreview(), 30);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pitch, removeVocals]);
+
+  // --- RENDERIZAÇÃO OFFLINE (Segura, Rápida e com Barra) ---
   const processAndSave = async () => {
     if (!audioBufferRef.current) return;
     setIsProcessing(true);
     setRenderProgress(0);
-    
-    if (isPlaying) {
-      Tone.Transport.pause();
-      setIsPlaying(false);
-    }
+    stopPreview();
 
     try {
-      const buffer = audioBufferRef.current;
-      const duration = buffer.duration;
-      const sampleRate = buffer.sampleRate;
+      const originalBuffer = audioBufferRef.current;
+      const playbackRate = Math.pow(2, pitch / 12);
+      const newDuration = originalBuffer.duration / playbackRate;
       
-      // Cria um ambiente fantasma (Offline)
-      const offlineCtx = new window.OfflineAudioContext(2, duration * sampleRate, sampleRate);
-      const offlineToneCtx = new Tone.Context(offlineCtx);
-      
-      // Salva o ambiente atual e injeta o Tone.js no ambiente fantasma
-      const currentContext = Tone.getContext();
-      Tone.setContext(offlineToneCtx);
+      const offlineCtx = new window.OfflineAudioContext(
+        originalBuffer.numberOfChannels, 
+        newDuration * originalBuffer.sampleRate, 
+        originalBuffer.sampleRate
+      );
 
-      try {
-        // Reconstrói a máquina no ambiente fantasma para a exportação
-        const offPlayer = new Tone.Player(buffer);
-        const offPitch = new Tone.PitchShift({ pitch: pitch, windowSize: 0.1 });
-        const offSplit = new Tone.MidSideSplit();
-        const offEq = new Tone.EQ3({ low: 0, mid: -25, high: 0 });
-        const offMerge = new Tone.MidSideMerge();
-        
-        offPlayer.connect(offPitch);
-        
-        if (removeVocals) {
-          offPitch.connect(offSplit);
-          offSplit.mid.connect(offEq);
-          offEq.connect(offMerge.mid);
-          offSplit.side.connect(offMerge.side);
-          offMerge.toDestination();
-        } else {
-          offPitch.toDestination();
-        }
-        
-        offPlayer.start(0);
+      const source = offlineCtx.createBufferSource();
+      source.buffer = originalBuffer;
 
-        // O milagre do fatiamento: Processa 5 segundos, respira e atualiza a barra
-        const chunkStep = 5;
-        for (let time = chunkStep; time < duration; time += chunkStep) {
-          offlineCtx.suspend(time).then(async () => {
-            setRenderProgress(Math.round((time / duration) * 100));
-            await new Promise(r => setTimeout(r, 20)); // Liberta a memória para não travar
-            offlineCtx.resume();
-          });
-        }
+      const finalNode = applyAudioRouting(offlineCtx, source);
+      finalNode.connect(offlineCtx.destination);
+      source.start(0);
 
-        const renderedNativeBuffer = await offlineCtx.startRendering();
-        
-        // Finaliza o ficheiro
-        setRenderProgress(100);
-        await new Promise(r => setTimeout(r, 100)); // Último respiro
-
-        const wavBlob = audioBufferToWav(renderedNativeBuffer);
-        const url = URL.createObjectURL(wavBlob);
-
-        const newTrack = {
-          id: Date.now().toString(),
-          name: `${fileName} (Masterizado)`,
-          url: url,
-          blob: wavBlob,
-          details: `Tom: ${pitch === 0 ? 'Orig' : pitch > 0 ? '+'+pitch : pitch} | Sem Voz: ${removeVocals ? 'Sim' : 'Não'}`
-        };
-
-        setLibrary([newTrack, ...library]);
-        setActiveTab('library');
-        
-        // Limpa para a próxima música
-        cleanupAudio();
-        setFile(null);
-        setPitch(0);
-        setRemoveVocals(false);
-      } finally {
-        // SEMPRE devolve o controlo do Tone.js para o ambiente normal
-        Tone.setContext(currentContext);
+      // Fatiamento da renderização para não rebentar a RAM do telemóvel
+      const chunkStep = 5; // A cada 5 segundos
+      for (let time = chunkStep; time < newDuration; time += chunkStep) {
+        offlineCtx.suspend(time).then(async () => {
+          const percent = Math.round((time / newDuration) * 100);
+          setRenderProgress(percent);
+          
+          // Liberta a Main Thread por uns milissegundos
+          await new Promise(resolve => setTimeout(resolve, 20));
+          offlineCtx.resume();
+        });
       }
+
+      const renderedBuffer = await offlineCtx.startRendering();
+      
+      setRenderProgress(100);
+      await new Promise(resolve => setTimeout(resolve, 50)); 
+
+      const wavBlob = audioBufferToWav(renderedBuffer);
+      const url = URL.createObjectURL(wavBlob);
+
+      const newTrack = {
+        id: Date.now().toString(),
+        name: `${fileName} (Editado)`,
+        url: url,
+        blob: wavBlob,
+        details: `Tom: ${pitch === 0 ? 'Original' : pitch > 0 ? '+'+pitch : pitch} | Playback: ${removeVocals ? 'Sim' : 'Não'}`
+      };
+
+      setLibrary([newTrack, ...library]);
+      setActiveTab('library');
+      
+      setFile(null);
+      setPitch(0);
+      setRemoveVocals(false);
+      pausedAtRef.current = 0;
     } catch (error) {
       console.error("Erro no processamento:", error);
-      alert("Houve um erro. Tente uma música um pouco mais curta.");
+      alert("Houve um erro ao processar o áudio. Tente novamente.");
     } finally {
       setIsProcessing(false);
       setRenderProgress(0);
@@ -260,10 +282,16 @@ export default function App() {
     const fileToShare = new File([track.blob], `${track.name}.wav`, { type: 'audio/wav' });
     if (navigator.canShare && navigator.canShare({ files: [fileToShare] })) {
       try {
-        await navigator.share({ title: track.name, files: [fileToShare] });
-      } catch (err) { console.log("Partilha cancelada"); }
+        await navigator.share({
+          title: track.name,
+          text: 'Ouça o áudio editado!',
+          files: [fileToShare]
+        });
+      } catch (err) {
+        console.log("Compartilhamento cancelado", err);
+      }
     } else {
-      alert("O dispositivo não suporta envio nativo. Clique em Transferir.");
+      alert("O seu dispositivo não suporta partilha nativa. Use o botão de Transferir.");
     }
   };
 
@@ -284,7 +312,7 @@ export default function App() {
   };
 
   const handleDelete = (id) => {
-    if(confirm("Remover da biblioteca?")) {
+    if(confirm("Remover esta música da biblioteca?")) {
         setLibrary(library.filter(t => t.id !== id));
     }
   };
@@ -292,17 +320,17 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#0a0a0c] text-gray-100 font-sans flex flex-col items-center">
       
-      {/* Cabeçalho */}
+      {/* Header */}
       <header className="w-full max-w-md p-5 flex justify-between items-center bg-[#111115] border-b border-gray-800 shadow-md sticky top-0 z-20">
         <div>
           <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-indigo-500 bg-clip-text text-transparent flex items-center gap-2">
             <Activity className="text-blue-500" size={20} /> Estúdio Playback
           </h1>
-          <p className="text-[10px] text-gray-500 font-medium tracking-widest uppercase">Motor Phase Vocoder (Tone.js)</p>
+          <p className="text-[10px] text-gray-500 font-medium tracking-widest uppercase">Motor Nativo (Modo Vinil)</p>
         </div>
       </header>
 
-      {/* Conteúdo Principal */}
+      {/* Main Content */}
       <main className="flex-1 w-full max-w-md p-5 overflow-y-auto pb-24">
         
         {activeTab === 'studio' && (
@@ -311,16 +339,13 @@ export default function App() {
             {!file ? (
               <label className="flex flex-col items-center justify-center w-full h-72 border-2 border-gray-800 border-dashed rounded-[2rem] cursor-pointer bg-[#15151a] hover:bg-[#1a1a20] transition-colors group">
                 <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                  {isProcessing ? (
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
-                  ) : (
-                    <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                      <Upload className="w-8 h-8 text-blue-400" />
-                    </div>
-                  )}
-                  <p className="mb-2 text-base text-gray-200 font-bold">{isProcessing ? 'A Analisar Áudio...' : 'Adicionar Louvor (MP3)'}</p>
+                  <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                    <Upload className="w-8 h-8 text-blue-400" />
+                  </div>
+                  <p className="mb-2 text-base text-gray-200 font-bold">Adicionar Louvor (MP3)</p>
+                  <p className="text-xs text-gray-500 text-center px-8">Toque para selecionar a música do seu dispositivo.</p>
                 </div>
-                <input type="file" accept="audio/*" className="hidden" onChange={handleFileUpload} disabled={isProcessing} />
+                <input type="file" accept="audio/*" className="hidden" onChange={handleFileUpload} />
               </label>
             ) : (
               <div className="bg-[#15151a] p-5 rounded-[2rem] shadow-xl border border-gray-800/50 relative">
@@ -328,10 +353,11 @@ export default function App() {
                 <div className="text-center mb-6">
                   <h2 className="text-lg font-bold text-gray-100 truncate px-4">{fileName}</h2>
                   <p className="text-xs text-blue-400 font-medium mt-1 flex justify-center items-center gap-1">
-                    <Check size={12}/> Faixa carregada no Tone.js
+                    <Check size={12}/> Faixa carregada nativamente
                   </p>
                 </div>
 
+                {/* Player Principal */}
                 <div className="flex justify-center mb-8">
                   <button 
                     onClick={togglePlay}
@@ -342,6 +368,7 @@ export default function App() {
                   </button>
                 </div>
 
+                {/* Controles: Extração de Voz */}
                 <div className="bg-[#0a0a0c] p-4 rounded-3xl mb-4 border border-gray-800">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-3">
@@ -350,7 +377,7 @@ export default function App() {
                       </div>
                       <div>
                         <h3 className="font-bold text-sm">Remover Voz</h3>
-                        <p className="text-[11px] text-gray-500 leading-tight mt-0.5">Separação Mid/Side Profissional</p>
+                        <p className="text-[11px] text-gray-500 leading-tight mt-0.5">Atenuação EQ (Preserva Som)</p>
                       </div>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
@@ -360,11 +387,12 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Controles: Ajuste de Tom Seguro */}
                 <div className="bg-[#0a0a0c] p-4 rounded-3xl border border-gray-800">
                   <div className="mb-3">
                     <h3 className="font-bold text-sm">Seletor de Tom</h3>
                     <p className="text-[11px] text-gray-500 flex items-center gap-1 mt-0.5">
-                      <AlertCircle size={10} /> Velocidade Preservada (Tone.js)
+                      <AlertCircle size={10} /> Qualidade de Vinil Nativ (Afeta Tempo)
                     </p>
                   </div>
                   
@@ -390,7 +418,7 @@ export default function App() {
                   {isProcessing ? (
                     <div className="w-full bg-[#0a0a0c] rounded-2xl p-4 flex flex-col items-center gap-3 border border-gray-800 shadow-inner">
                       <div className="flex justify-between w-full text-xs font-extrabold text-blue-400">
-                        <span className="animate-pulse">A Renderizar no Telemóvel...</span>
+                        <span className="animate-pulse">A Renderizar Áudio Nativo...</span>
                         <span>{renderProgress}%</span>
                       </div>
                       <div className="w-full bg-gray-800/80 rounded-full h-3 overflow-hidden shadow-inner border border-gray-900">
@@ -410,7 +438,7 @@ export default function App() {
                   )}
 
                   <button 
-                    onClick={() => { cleanupAudio(); setFile(null); }}
+                    onClick={() => { setFile(null); stopPreview(); }}
                     disabled={isProcessing}
                     className="w-full py-3 bg-transparent text-gray-400 hover:text-white rounded-2xl text-sm font-semibold transition-colors disabled:opacity-30"
                   >
@@ -425,6 +453,7 @@ export default function App() {
         {/* ABA BIBLIOTECA */}
         {activeTab === 'library' && (
           <div className="space-y-4 animate-in fade-in duration-300">
+            
             {library.length === 0 ? (
               <div className="text-center py-16 px-6 bg-[#15151a] rounded-[2rem] border border-gray-800/50">
                 <div className="w-16 h-16 bg-gray-800/50 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -465,7 +494,7 @@ export default function App() {
                       <Edit2 size={14} /> Renomear
                     </button>
                     <button onClick={() => handleShare(track)} className="flex-[1.5] py-2.5 bg-green-500 hover:bg-green-400 text-gray-950 rounded-xl flex items-center justify-center gap-2 text-xs font-extrabold shadow-lg shadow-green-500/20 transition-all active:scale-95">
-                      <Share2 size={16} /> Enviar
+                      <Share2 size={16} /> WhatsApp
                     </button>
                   </div>
                 </div>
