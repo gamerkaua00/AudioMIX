@@ -104,32 +104,26 @@ export default function App() {
   const [library, setLibrary] = useState([]);
   const [activePlaylist, setActivePlaylist] = useState('Todas');
   
-  // Estados Globais de Edição
   const [file, setFile] = useState(null);
   const [fileName, setFileName] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
   
-  // Controles do Estúdio Básico
   const [pitch, setPitch] = useState(0); 
   const [removeVocals, setRemoveVocals] = useState(false);
   
-  // Controles do Estúdio PRO
   const [bass, setBass] = useState(0);
   const [mid, setMid] = useState(0);
   const [treble, setTreble] = useState(0);
   const [compressor, setCompressor] = useState(false);
 
-  // Controles de Reprodução (Seeker & Loop)
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [loopA, setLoopA] = useState(null);
   const [loopB, setLoopB] = useState(null);
   
-  // Progresso de Renderização
   const [isProcessing, setIsProcessing] = useState(false);
   const [renderProgress, setRenderProgress] = useState(0);
 
-  // Referências do Motor WebAudio API
   const audioContextRef = useRef(null);
   const sourceNodeRef = useRef(null);
   const audioBufferRef = useRef(null);
@@ -171,7 +165,6 @@ export default function App() {
     setFileName(uploadedFile.name.replace(/\.[^/.]+$/, ""));
     stopPreview(); 
     
-    // Reseta Controles
     setPitch(0); setRemoveVocals(false); 
     setBass(0); setMid(0); setTreble(0); setCompressor(false);
     setLoopA(null); setLoopB(null); setCurrentTime(0);
@@ -184,12 +177,10 @@ export default function App() {
     setDuration(audioBuffer.duration);
   };
 
-  // --- MOTOR DE ÁUDIO HD ---
   const applyAudioRouting = (ctx, source, isOffline = false) => {
     const playbackRate = Math.pow(2, pitch / 12);
     source.playbackRate.value = playbackRate;
 
-    // 1. Filtros PRO (Graves, Médios, Agudos)
     const bassFilter = ctx.createBiquadFilter();
     bassFilter.type = 'lowshelf';
     bassFilter.frequency.value = 250;
@@ -206,7 +197,6 @@ export default function App() {
     trebleFilter.frequency.value = 4000;
     trebleFilter.gain.value = treble;
 
-    // 2. Compressor de Masterização (Estúdio Pro)
     const dynamicsCompressor = ctx.createDynamicsCompressor();
     if (compressor) {
       dynamicsCompressor.threshold.value = -24;
@@ -219,14 +209,12 @@ export default function App() {
       dynamicsCompressor.ratio.value = 1;
     }
 
-    // Cadeia de Sinal PRO
     source.connect(bassFilter);
     bassFilter.connect(midFilter);
     midFilter.connect(trebleFilter);
     trebleFilter.connect(dynamicsCompressor);
     let finalOutput = dynamicsCompressor;
 
-    // 3. Filtro Básico (Remover Voz - Beta)
     if (removeVocals && audioBufferRef.current.numberOfChannels > 1) {
       const splitter = ctx.createChannelSplitter(2);
       dynamicsCompressor.connect(splitter);
@@ -254,7 +242,6 @@ export default function App() {
       finalOutput = merger;
     }
 
-    // Analisador para Efeito Visual
     if (!isOffline) {
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256; 
@@ -265,7 +252,6 @@ export default function App() {
     return finalOutput;
   };
 
-  // --- REPRODUTOR E VISUALIZADOR ---
   const drawVisualizer = () => {
     if (!canvasRef.current || !analyserRef.current || !isPlaying) return;
     const canvas = canvasRef.current;
@@ -305,7 +291,6 @@ export default function App() {
     const playbackRate = Math.pow(2, pitch / 12);
     let current = ((ctx.currentTime - startTimeRef.current) * playbackRate) + pausedAtRef.current;
     
-    // Lógica do LOOP A-B Melhorada
     if (loopB !== null && current >= loopB) {
       seekTo(loopA || 0);
       return; 
@@ -384,7 +369,6 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pitch, removeVocals, bass, mid, treble, compressor]);
 
-  // --- RENDERIZAÇÃO MP3 ---
   const processAndSave = async () => {
     if (!audioBufferRef.current) return;
     if (!window.lamejs) { alert("Aguarde um segundo, carregando motor MP3..."); return; }
@@ -452,22 +436,30 @@ export default function App() {
     }
   };
 
-  // --- AÇÕES DA BIBLIOTECA ---
+  // --- SOLUÇÃO DE PARTILHA WEB NATIVA (Sem dependências extras) ---
   const handleShare = async (track) => {
     try {
+      // Usar a etiqueta correta (audio/mpeg) é o que faz funcionar no Android S25
       const fileToShare = new File([track.blob], `${track.name}.mp3`, { type: 'audio/mpeg' });
       
-      if (navigator.share) {
+      // O Capacitor WebView moderno suporta navigator.share com ficheiros.
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [fileToShare] })) {
         await navigator.share({ 
           title: track.name, 
-          text: 'Ouça o meu áudio editado no AudioMIX!',
+          text: 'Ouça o meu playback editado no AudioMIX!',
           files: [fileToShare] 
         });
+      } else if (navigator.share) {
+         // Fallback se o aparelho não suportar envio de ficheiros diretos
+         await navigator.share({
+           title: track.name,
+           text: 'Ouça o meu playback editado no AudioMIX!'
+         });
       } else {
-        throw new Error("API Share não suportada.");
+        throw new Error("A API de partilha não é suportada neste dispositivo.");
       }
     } catch (err) {
-      console.log("Partilha nativa falhou. Redirecionando para download normal.", err);
+      console.log("Partilha nativa falhou. Redirecionando para a transferência normal.", err);
       handleDownload(track);
     }
   };
@@ -521,17 +513,15 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#0a0a0c] text-gray-100 font-sans flex flex-col items-center select-none">
       
-      {/* Header Fixo */}
       <header className="w-full max-w-md p-5 pt-safe-area flex justify-between items-center bg-[#111115] border-b border-gray-800 shadow-md sticky top-0 z-20">
         <div>
           <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-indigo-500 bg-clip-text text-transparent flex items-center gap-2">
             <Activity className="text-blue-500" size={20} /> AudioMIX
           </h1>
-          <p className="text-[10px] text-gray-500 font-medium tracking-widest uppercase mt-0.5">MP3 Engine • PRO</p>
+          <p className="text-[10px] text-gray-500 font-medium tracking-widest uppercase mt-0.5">Play Store Ready • PRO</p>
         </div>
       </header>
 
-      {/* Conteúdo Principal */}
       <main className="flex-1 w-full max-w-md p-5 overflow-y-auto pb-28">
         
         {/* ABA 1: ESTÚDIO BÁSICO */}
@@ -551,7 +541,6 @@ export default function App() {
             ) : (
               <div className="bg-[#15151a] p-5 rounded-[2rem] shadow-xl border border-gray-800/50 relative">
                 
-                {/* Visualizador de Ondas Sonoras Melhorado */}
                 <div className="w-full h-24 bg-[#0a0a0c] rounded-2xl mb-6 flex items-center justify-center overflow-hidden border border-gray-800 relative shadow-inner">
                   <canvas ref={canvasRef} width="300" height="80" className="w-full h-full opacity-90" />
                   <div className="absolute top-2 left-3 text-[10px] text-blue-500/70 font-bold uppercase tracking-widest">
@@ -563,7 +552,6 @@ export default function App() {
                   <h2 className="text-sm font-bold text-gray-100 truncate px-4">{fileName}</h2>
                 </div>
 
-                {/* Seeker (Barra de Tempo) e Loop Intuitivo */}
                 <div className="mb-8">
                   <div className="flex justify-between text-[10px] text-gray-400 font-bold mb-3">
                     <span>{formatTime(currentTime)}</span>
@@ -575,7 +563,6 @@ export default function App() {
                     className="w-full h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-blue-500 mb-4"
                   />
                   
-                  {/* Controlos de Loop Claros */}
                   <div className="flex items-center justify-between bg-[#0a0a0c] p-2 rounded-xl border border-gray-800">
                     <div className="flex gap-2">
                       <button 
@@ -599,7 +586,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Player */}
                 <div className="flex justify-center mb-8 relative">
                   <div className="absolute inset-0 bg-blue-500/10 blur-xl rounded-full scale-150"></div>
                   <button 
@@ -610,7 +596,6 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* Remover Voz (BETA) */}
                 <div className="bg-[#0a0a0c] p-4 rounded-3xl mb-4 border border-gray-800">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-3">
@@ -629,7 +614,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Tom (Modo Vinil) */}
                 <div className="bg-[#0a0a0c] p-4 rounded-3xl border border-gray-800 mb-6">
                   <div className="mb-3">
                     <h3 className="font-bold text-sm">Tom (Modo Vinil)</h3>
@@ -650,7 +634,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Exportar MP3 */}
                 {isProcessing ? (
                   <div className="w-full bg-[#0a0a0c] rounded-2xl p-4 flex flex-col items-center border border-blue-500/30 shadow-inner">
                     <div className="flex justify-between w-full text-xs font-extrabold text-blue-400 mb-2">
@@ -689,7 +672,6 @@ export default function App() {
                 </div>
 
                 <div className="bg-[#0a0a0c] p-6 rounded-3xl border border-gray-800 mb-6 space-y-6">
-                  {/* Graves */}
                   <div>
                     <div className="flex justify-between mb-2">
                       <span className="font-bold text-sm text-gray-200">Graves (Bass)</span>
@@ -698,7 +680,6 @@ export default function App() {
                     <input type="range" min="-15" max="15" value={bass} onChange={(e) => setBass(Number(e.target.value))} className="w-full h-2 bg-gray-800 rounded-lg appearance-none accent-blue-500"/>
                   </div>
                   
-                  {/* Médios */}
                   <div>
                     <div className="flex justify-between mb-2">
                       <span className="font-bold text-sm text-gray-200">Médios (Mid)</span>
@@ -707,7 +688,6 @@ export default function App() {
                     <input type="range" min="-15" max="15" value={mid} onChange={(e) => setMid(Number(e.target.value))} className="w-full h-2 bg-gray-800 rounded-lg appearance-none accent-blue-500"/>
                   </div>
 
-                  {/* Agudos */}
                   <div>
                     <div className="flex justify-between mb-2">
                       <span className="font-bold text-sm text-gray-200">Agudos (Treble)</span>
@@ -717,7 +697,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Compressor / Mastering */}
                 <div className="bg-[#0a0a0c] p-4 rounded-3xl border border-gray-800 mb-6">
                   <div className="flex items-center justify-between mb-1">
                     <div>
@@ -743,7 +722,6 @@ export default function App() {
         {activeTab === 'library' && (
           <div className="space-y-4 animate-in fade-in duration-300">
             
-            {/* Seletor de Playlists */}
             {library.length > 0 && (
               <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
                 {playlistsDisponiveis.map(pl => (
@@ -786,8 +764,8 @@ export default function App() {
                     <button onClick={() => handleChangePlaylist(track.id)} className="py-2.5 bg-[#0a0a0c] rounded-xl flex items-center justify-center gap-1.5 text-[11px] font-bold text-gray-300 border border-gray-800">
                       <ListMusic size={14} /> Playlist
                     </button>
-                    <button onClick={() => handleRename(track.id, track.name)} className="py-2.5 bg-[#0a0a0c] rounded-xl flex items-center justify-center gap-1.5 text-[11px] font-bold text-gray-300 border border-gray-800">
-                      <Edit2 size={14} /> Renomear
+                    <button onClick={() => handleDownload(track)} className="py-2.5 bg-[#0a0a0c] rounded-xl flex items-center justify-center gap-1.5 text-[11px] font-bold text-gray-300 border border-gray-800">
+                      <Download size={14} /> Baixar
                     </button>
                     <button onClick={() => handleShare(track)} className="py-2.5 bg-green-500 text-green-950 rounded-xl flex items-center justify-center gap-1.5 text-[11px] font-extrabold shadow-lg shadow-green-500/20 active:scale-95">
                       <Share2 size={14} /> Partilhar
@@ -808,7 +786,7 @@ export default function App() {
                     <div className="text-white"><Activity size={32} /></div>
                 </div>
                 <h2 className="text-2xl font-bold text-gray-100 mb-1">AudioMIX</h2>
-                <p className="text-blue-400 text-xs font-semibold tracking-widest uppercase mb-6">MP3 Engine • PRO</p>
+                <p className="text-blue-400 text-xs font-semibold tracking-widest uppercase mb-6">Play Store Edition</p>
                 
                 <div className="bg-[#0a0a0c] p-5 rounded-2xl border border-gray-800 mb-6 text-left shadow-inner">
                     <p className="text-gray-500 text-[10px] uppercase tracking-widest mb-1 font-bold">Desenvolvedor & Criador</p>
@@ -828,7 +806,6 @@ export default function App() {
         )}
       </main>
 
-      {/* Navegação Fixa Inferior */}
       <nav className="fixed bottom-0 w-full max-w-md bg-[#111115]/95 backdrop-blur-xl border-t border-gray-800/80 flex justify-between px-4 py-2 pb-safe-area z-30">
         <button onClick={() => setActiveTab('studio')} className={`flex flex-col items-center justify-center gap-1.5 p-2 w-[22%] rounded-2xl transition-all ${activeTab === 'studio' ? 'text-blue-400 bg-blue-500/10' : 'text-gray-500'}`}>
           <Settings2 size={22} />
