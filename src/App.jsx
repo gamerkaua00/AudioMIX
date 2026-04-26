@@ -135,12 +135,10 @@ export default function App() {
   const pausedAtRef = useRef(0);
 
   useEffect(() => {
-    // Carrega o codificador MP3
     const script = document.createElement('script');
     script.src = "https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.1/lame.min.js";
     document.body.appendChild(script);
 
-    // Carrega a base de dados
     getLibraryFromDB().then(tracks => {
       const tracksComUrl = tracks.map(t => ({
         ...t,
@@ -373,7 +371,7 @@ export default function App() {
 
   const processAndSave = async () => {
     if (!audioBufferRef.current) return;
-    if (!window.lamejs) { alert("Aguarde um segundo, carregando motor MP3..."); return; }
+    if (!window.lamejs) { alert("Aguarde um momento, a carregar codificador..."); return; }
     
     setIsProcessing(true);
     setRenderProgress(0);
@@ -414,8 +412,8 @@ export default function App() {
         name: `${fileName} (Editado)`,
         url: url,
         blob: mp3Blob,
-        playlist: 'Músicas Originais',
-        details: `Tom: ${pitch === 0 ? 'Orig' : pitch} | PRO`
+        playlist: 'Geral',
+        details: `Tom: ${pitch === 0 ? 'Orig' : pitch}`
       };
 
       await saveTrackToDB(newTrack);
@@ -438,55 +436,51 @@ export default function App() {
     }
   };
 
-  // --- SOLUÇÃO FORÇADA PARA TRANSFERIR (DOWNLOAD) E PARTILHAR ---
-  
+  // --- HACK PARA DOWNLOAD NO ANDROID WEBVIEW ---
   const handleDownload = (track) => {
     try {
-      // Força o tipo para 'application/octet-stream' para obrigar o Android a iniciar o download
-      const blobUrl = URL.createObjectURL(new Blob([track.blob], { type: 'application/octet-stream' }));
-      const a = document.createElement('a');
-      a.style.display = 'none';
-      a.href = blobUrl;
-      a.download = `${track.name}.mp3`;
-      document.body.appendChild(a);
-      a.click();
-      
-      // Limpeza segura da memória após clique
-      setTimeout(() => {
+      // Usar FileReader para converter para Base64 força o sistema Android a reconhecer e fazer o download nativo
+      const reader = new FileReader();
+      reader.readAsDataURL(track.blob);
+      reader.onloadend = () => {
+        const base64data = reader.result;
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = base64data;
+        a.download = `${track.name}.mp3`;
+        document.body.appendChild(a);
+        a.click();
         document.body.removeChild(a);
-        URL.revokeObjectURL(blobUrl);
-      }, 1000);
+        alert("Transferência iniciada! Verifique a barra de notificações do seu telemóvel.");
+      };
     } catch (e) {
-      alert("Erro ao tentar transferir: " + e.message);
+      alert("Erro ao transferir: " + e.message);
     }
   };
 
+  // --- PARTILHA REALISTA PARA O TELEMÓVEL ---
   const handleShare = async (track) => {
     try {
-      // Garante o formato 'audio/mpeg' exigido pelo WhatsApp
-      const fileToShare = new File([track.blob], `${track.name}.mp3`, { type: 'audio/mpeg' });
+      const fileToShare = new File([track.blob], `${track.name}.mp3`, { type: 'audio/mp3' });
       
       if (navigator.share) {
         if (navigator.canShare && navigator.canShare({ files: [fileToShare] })) {
-            // Suporta envio de ficheiros (Android Atualizado)
             await navigator.share({
                 title: track.name,
-                text: 'Ouça o meu playback editado no AudioMIX!',
+                text: 'Música editada no AudioMIX',
                 files: [fileToShare]
             });
         } else {
-            // Suporta partilha, mas não de ficheiros diretos
-            alert("A partilha direta de ficheiros não é suportada neste ecrã. O ficheiro vai ser transferido para o seu telemóvel para enviar manualmente.");
+            alert("O seu dispositivo bloqueou a partilha direta. O ficheiro será transferido agora, abra a sua pasta de Downloads para partilhar.");
             handleDownload(track);
         }
       } else {
-        alert("O seu aparelho não suporta a função partilhar. A transferir o ficheiro...");
+        alert("Função de partilha indisponível. A iniciar transferência...");
         handleDownload(track);
       }
     } catch (err) {
       if (err.name !== 'AbortError') {
-        console.error("Partilha cancelada ou falhou:", err);
-        alert("Ocorreu um erro ao tentar partilhar com outras Apps. A iniciar transferência...");
+        alert("A partilha foi cancelada ou falhou. O ficheiro será transferido para si.");
         handleDownload(track);
       }
     }
@@ -503,7 +497,7 @@ export default function App() {
   };
 
   const handleChangePlaylist = async (id) => {
-    const pName = prompt("Digite o nome da Playlist (ex: Culto Domingo):", "Nova Playlist");
+    const pName = prompt("Mover para a Playlist (ex: Ensaios):", "Nova Playlist");
     if (pName && pName.trim() !== "") {
       const track = library.find(t => t.id === id);
       track.playlist = pName.trim();
@@ -513,7 +507,7 @@ export default function App() {
   };
 
   const handleDelete = async (id) => {
-    if(confirm("Remover esta música permanentemente?")) {
+    if(confirm("Deseja apagar esta música para sempre?")) {
         await deleteTrackFromDB(id);
         setLibrary(library.filter(t => t.id !== id));
     }
@@ -530,44 +524,39 @@ export default function App() {
   const bibliotecaFiltrada = activePlaylist === 'Todas' ? library : library.filter(t => t.playlist === activePlaylist);
 
   return (
-    <div className="min-h-screen bg-[#0a0a0c] text-gray-100 font-sans flex flex-col items-center select-none">
+    <div className="min-h-screen bg-[#070709] text-gray-100 font-sans flex flex-col items-center select-none">
       
-      <header className="w-full max-w-md p-5 pt-safe-area flex justify-between items-center bg-[#111115] border-b border-gray-800 shadow-md sticky top-0 z-20">
-        <div>
-          <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-indigo-500 bg-clip-text text-transparent flex items-center gap-2">
-            <Activity className="text-blue-500" size={20} /> AudioMIX
-          </h1>
-          <p className="text-[10px] text-gray-500 font-medium tracking-widest uppercase mt-0.5">Play Store Ready • PRO</p>
-        </div>
+      {/* Design de Cabeçalho Limpo e Elegante */}
+      <header className="w-full max-w-md p-6 pt-safe-area flex justify-center items-center bg-[#0a0a0c]/80 backdrop-blur-xl sticky top-0 z-20">
+        <h1 className="text-xl font-black tracking-wide text-white flex items-center gap-2">
+          <Activity className="text-blue-500" size={22} /> AudioMIX
+        </h1>
       </header>
 
-      <main className="flex-1 w-full max-w-md p-5 overflow-y-auto pb-28">
+      <main className="flex-1 w-full max-w-md px-5 pt-2 pb-28 overflow-y-auto">
         
-        {/* ABA 1: ESTÚDIO BÁSICO */}
+        {/* ABA 1: BÁSICO */}
         {activeTab === 'studio' && (
           <div className="space-y-6 animate-in fade-in duration-300">
             {!file ? (
-              <label className="flex flex-col items-center justify-center w-full h-80 border-2 border-gray-800 border-dashed rounded-[2rem] cursor-pointer bg-[#15151a] hover:border-blue-500/50 transition-all shadow-inner">
+              <label className="flex flex-col items-center justify-center w-full h-[22rem] rounded-[2rem] cursor-pointer bg-[#0f0f13] hover:bg-[#131318] transition-colors border border-white/5 shadow-xl">
                 <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                  <div className="w-20 h-20 bg-blue-500/10 rounded-full flex items-center justify-center mb-6">
-                    <Upload className="w-8 h-8 text-blue-400" />
+                  <div className="w-20 h-20 bg-blue-500/10 rounded-full flex items-center justify-center mb-6 text-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.15)]">
+                    <Upload size={32} />
                   </div>
-                  <h2 className="mb-2 text-lg text-gray-100 font-extrabold tracking-tight">Estúdio Básico</h2>
-                  <p className="text-sm text-gray-500 text-center px-8">Toque para selecionar um áudio.</p>
+                  <h2 className="mb-2 text-lg text-white font-bold tracking-tight">Adicionar Áudio</h2>
+                  <p className="text-xs text-gray-500">Selecione uma música do dispositivo</p>
                 </div>
                 <input type="file" accept="audio/*" className="hidden" onChange={handleFileUpload} disabled={isProcessing} />
               </label>
             ) : (
-              <div className="bg-[#15151a] p-5 rounded-[2rem] shadow-xl border border-gray-800/50 relative">
+              <div className="bg-[#0f0f13] p-6 rounded-[2rem] shadow-xl border border-white/5">
                 
-                <div className="w-full h-24 bg-[#0a0a0c] rounded-2xl mb-6 flex items-center justify-center overflow-hidden border border-gray-800 relative shadow-inner">
+                <div className="w-full h-24 bg-[#070709] rounded-2xl mb-6 flex items-center justify-center overflow-hidden border border-white/5 relative">
                   <canvas ref={canvasRef} width="300" height="80" className="w-full h-full opacity-90" />
-                  <div className="absolute top-2 left-3 text-[10px] text-blue-500/70 font-bold uppercase tracking-widest">
-                    Live Feed
-                  </div>
                 </div>
 
-                <div className="text-center mb-4">
+                <div className="text-center mb-6">
                   <h2 className="text-sm font-bold text-gray-100 truncate px-4">{fileName}</h2>
                 </div>
 
@@ -579,26 +568,20 @@ export default function App() {
                   <input 
                     type="range" min="0" max={duration || 100} value={currentTime} 
                     onChange={(e) => seekTo(e.target.value)}
-                    className="w-full h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-blue-500 mb-4"
+                    className="w-full h-2 bg-[#1a1a24] rounded-lg appearance-none cursor-pointer accent-blue-500 mb-4"
                   />
                   
-                  <div className="flex items-center justify-between bg-[#0a0a0c] p-2 rounded-xl border border-gray-800">
+                  <div className="flex items-center justify-between bg-[#070709] p-2 rounded-xl border border-white/5">
                     <div className="flex gap-2">
-                      <button 
-                        onClick={() => setLoopA(currentTime)}
-                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${loopA !== null ? 'bg-blue-500 text-white' : 'bg-gray-800 text-gray-400'}`}
-                      >
-                        {loopA !== null ? `A: ${formatTime(loopA)}` : 'Marcar A'}
+                      <button onClick={() => setLoopA(currentTime)} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all active:scale-95 ${loopA !== null ? 'bg-blue-500 text-white shadow-lg' : 'bg-[#15151e] text-gray-400'}`}>
+                        {loopA !== null ? `A: ${formatTime(loopA)}` : 'Início'}
                       </button>
-                      <button 
-                        onClick={() => setLoopB(currentTime)}
-                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${loopB !== null ? 'bg-blue-500 text-white' : 'bg-gray-800 text-gray-400'}`}
-                      >
-                        {loopB !== null ? `B: ${formatTime(loopB)}` : 'Marcar B'}
+                      <button onClick={() => setLoopB(currentTime)} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all active:scale-95 ${loopB !== null ? 'bg-blue-500 text-white shadow-lg' : 'bg-[#15151e] text-gray-400'}`}>
+                        {loopB !== null ? `B: ${formatTime(loopB)}` : 'Fim'}
                       </button>
                     </div>
                     {(loopA !== null || loopB !== null) && (
-                      <button onClick={() => {setLoopA(null); setLoopB(null);}} className="text-red-400 p-1.5 hover:bg-red-500/10 rounded-lg transition-colors">
+                      <button onClick={() => {setLoopA(null); setLoopB(null);}} className="text-gray-500 hover:text-red-400 p-2 rounded-lg transition-colors">
                         <X size={18} />
                       </button>
                     )}
@@ -606,66 +589,56 @@ export default function App() {
                 </div>
 
                 <div className="flex justify-center mb-8 relative">
-                  <div className="absolute inset-0 bg-blue-500/10 blur-xl rounded-full scale-150"></div>
+                  <div className="absolute inset-0 bg-blue-500/10 blur-2xl rounded-full scale-125"></div>
                   <button 
                     onClick={togglePlay} disabled={isProcessing}
-                    className="relative w-20 h-20 flex items-center justify-center bg-gradient-to-tr from-blue-600 to-indigo-500 active:scale-95 text-white rounded-full shadow-[0_10px_30px_rgba(79,70,229,0.3)]"
+                    className="relative w-20 h-20 flex items-center justify-center bg-blue-600 hover:bg-blue-500 active:scale-90 text-white rounded-full shadow-[0_10px_30px_rgba(59,130,246,0.3)] transition-all"
                   >
-                    {isPlaying ? <Pause size={30} fill="currentColor" /> : <Play size={30} fill="currentColor" className="ml-2" />}
+                    {isPlaying ? <Pause size={28} fill="currentColor" /> : <Play size={28} fill="currentColor" className="ml-1" />}
                   </button>
                 </div>
 
-                <div className="bg-[#0a0a0c] p-4 rounded-3xl mb-4 border border-gray-800">
-                  <div className="flex items-center justify-between mb-2">
+                <div className="bg-[#070709] p-4 rounded-2xl mb-4 border border-white/5">
+                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className={`p-2.5 rounded-xl transition-colors ${removeVocals ? 'bg-blue-500/20 text-blue-400' : 'bg-gray-800 text-gray-400'}`}>
-                        <MicOff size={22} />
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-sm">Remover Voz (Beta)</h3>
-                        <p className="text-[10px] text-gray-500 mt-0.5">Atenuação central via EQ.</p>
-                      </div>
+                      <MicOff size={20} className={removeVocals ? 'text-blue-400' : 'text-gray-600'} />
+                      <h3 className="font-semibold text-sm text-gray-200">Atenuador de Voz</h3>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input type="checkbox" className="sr-only peer" checked={removeVocals} onChange={() => setRemoveVocals(!removeVocals)} disabled={isProcessing} />
-                      <div className="w-12 h-6 bg-gray-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+                      <div className="w-11 h-6 bg-[#1a1a24] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
                     </label>
                   </div>
                 </div>
 
-                <div className="bg-[#0a0a0c] p-4 rounded-3xl border border-gray-800 mb-6">
-                  <div className="mb-3">
-                    <h3 className="font-bold text-sm">Tom (Modo Vinil)</h3>
-                    <p className="text-[10px] text-gray-500 flex items-center gap-1 mt-0.5">
-                      <AlertCircle size={10} /> Preserva 100% da qualidade.
-                    </p>
-                  </div>
+                <div className="bg-[#070709] p-4 rounded-2xl border border-white/5 mb-6">
+                  <h3 className="font-semibold text-sm text-gray-200 mb-3">Ajuste de Tom</h3>
                   <div className="grid grid-cols-7 gap-1">
                     {[-3, -2, -1, 0, 1, 2, 3].map((val) => (
                       <button
                         key={val} onClick={() => setPitch(val)} disabled={isProcessing}
-                        className={`py-3 rounded-xl text-xs font-bold transition-all
-                          ${pitch === val ? 'bg-blue-500 text-white shadow-lg' : 'bg-gray-800 text-gray-400'}`}
+                        className={`py-2.5 rounded-lg text-xs font-bold transition-all active:scale-90
+                          ${pitch === val ? 'bg-blue-500 text-white shadow-md' : 'bg-[#15151e] text-gray-400'}`}
                       >
-                        {val > 0 ? `+${val}` : val === 0 ? 'Orig' : val}
+                        {val > 0 ? `+${val}` : val === 0 ? '0' : val}
                       </button>
                     ))}
                   </div>
                 </div>
 
                 {isProcessing ? (
-                  <div className="w-full bg-[#0a0a0c] rounded-2xl p-4 flex flex-col items-center border border-blue-500/30 shadow-inner">
-                    <div className="flex justify-between w-full text-xs font-extrabold text-blue-400 mb-2">
-                      <span className="animate-pulse">A Renderizar MP3...</span>
+                  <div className="w-full bg-[#070709] rounded-2xl p-4 flex flex-col items-center border border-white/5">
+                    <div className="flex justify-between w-full text-xs font-bold text-blue-400 mb-2">
+                      <span className="animate-pulse">A Renderizar...</span>
                       <span>{renderProgress}%</span>
                     </div>
-                    <div className="w-full bg-gray-800 rounded-full h-2">
-                      <div className="bg-blue-500 h-full rounded-full transition-all duration-200" style={{ width: `${renderProgress}%` }}></div>
+                    <div className="w-full bg-[#1a1a24] rounded-full h-1.5">
+                      <div className="bg-blue-500 h-full rounded-full transition-all duration-300" style={{ width: `${renderProgress}%` }}></div>
                     </div>
                   </div>
                 ) : (
-                  <button onClick={processAndSave} className="w-full py-4 bg-white text-gray-950 rounded-2xl text-sm font-extrabold flex justify-center items-center gap-2 shadow-xl active:scale-[0.98]">
-                    Exportar MP3 <Download size={18} />
+                  <button onClick={processAndSave} className="w-full py-4 bg-white text-black rounded-2xl text-sm font-bold flex justify-center items-center gap-2 active:scale-95 transition-transform">
+                    Gravar e Guardar <Download size={18} />
                   </button>
                 )}
               </div>
@@ -673,80 +646,74 @@ export default function App() {
           </div>
         )}
 
-        {/* ABA 2: ESTÚDIO PRO */}
+        {/* ABA 2: PRO */}
         {activeTab === 'pro' && (
           <div className="space-y-6 animate-in fade-in duration-300">
             {!file ? (
-              <div className="text-center py-20 px-6 bg-[#15151a] rounded-[2rem] border border-gray-800/50">
-                <Sliders className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-                <h3 className="text-gray-200 font-bold mb-2">Estúdio Pro Bloqueado</h3>
-                <p className="text-sm text-gray-500 mb-6">Adicione uma música no "Estúdio Básico" primeiro para desbloquear a Mesa de Mistura.</p>
-                <button onClick={() => setActiveTab('studio')} className="px-6 py-2.5 bg-blue-500/10 text-blue-400 rounded-full text-sm font-bold">Abrir Básico</button>
+              <div className="text-center py-24 px-6 bg-[#0f0f13] rounded-[2rem] border border-white/5">
+                <Sliders className="w-10 h-10 text-gray-700 mx-auto mb-4" />
+                <h3 className="text-white font-bold mb-2">Mesa de Mistura</h3>
+                <p className="text-xs text-gray-500 mb-6">Carregue um ficheiro no menu Básico.</p>
               </div>
             ) : (
-              <div className="bg-[#15151a] p-5 rounded-[2rem] shadow-xl border border-gray-800/50 relative">
-                <div className="flex items-center justify-center gap-2 mb-8">
-                  <Sliders className="text-blue-500" size={24}/>
-                  <h2 className="text-xl font-bold">Mesa de Mistura PRO</h2>
-                </div>
+              <div className="bg-[#0f0f13] p-6 rounded-[2rem] shadow-xl border border-white/5">
+                <h2 className="text-lg font-bold mb-8 text-white">Equalizador</h2>
 
-                <div className="bg-[#0a0a0c] p-6 rounded-3xl border border-gray-800 mb-6 space-y-6">
+                <div className="space-y-8 mb-10">
                   <div>
-                    <div className="flex justify-between mb-2">
-                      <span className="font-bold text-sm text-gray-200">Graves (Bass)</span>
-                      <span className="text-xs text-blue-400 font-bold">{bass > 0 ? '+'+bass : bass} dB</span>
+                    <div className="flex justify-between mb-3">
+                      <span className="font-semibold text-sm text-gray-300">Graves</span>
+                      <span className="text-xs text-blue-400 font-bold">{bass} dB</span>
                     </div>
-                    <input type="range" min="-15" max="15" value={bass} onChange={(e) => setBass(Number(e.target.value))} className="w-full h-2 bg-gray-800 rounded-lg appearance-none accent-blue-500"/>
+                    <input type="range" min="-15" max="15" value={bass} onChange={(e) => setBass(Number(e.target.value))} className="w-full h-1.5 bg-[#1a1a24] rounded-lg appearance-none accent-blue-500"/>
                   </div>
                   
                   <div>
-                    <div className="flex justify-between mb-2">
-                      <span className="font-bold text-sm text-gray-200">Médios (Mid)</span>
-                      <span className="text-xs text-blue-400 font-bold">{mid > 0 ? '+'+mid : mid} dB</span>
+                    <div className="flex justify-between mb-3">
+                      <span className="font-semibold text-sm text-gray-300">Médios</span>
+                      <span className="text-xs text-blue-400 font-bold">{mid} dB</span>
                     </div>
-                    <input type="range" min="-15" max="15" value={mid} onChange={(e) => setMid(Number(e.target.value))} className="w-full h-2 bg-gray-800 rounded-lg appearance-none accent-blue-500"/>
+                    <input type="range" min="-15" max="15" value={mid} onChange={(e) => setMid(Number(e.target.value))} className="w-full h-1.5 bg-[#1a1a24] rounded-lg appearance-none accent-blue-500"/>
                   </div>
 
                   <div>
-                    <div className="flex justify-between mb-2">
-                      <span className="font-bold text-sm text-gray-200">Agudos (Treble)</span>
-                      <span className="text-xs text-blue-400 font-bold">{treble > 0 ? '+'+treble : treble} dB</span>
+                    <div className="flex justify-between mb-3">
+                      <span className="font-semibold text-sm text-gray-300">Agudos</span>
+                      <span className="text-xs text-blue-400 font-bold">{treble} dB</span>
                     </div>
-                    <input type="range" min="-15" max="15" value={treble} onChange={(e) => setTreble(Number(e.target.value))} className="w-full h-2 bg-gray-800 rounded-lg appearance-none accent-blue-500"/>
+                    <input type="range" min="-15" max="15" value={treble} onChange={(e) => setTreble(Number(e.target.value))} className="w-full h-1.5 bg-[#1a1a24] rounded-lg appearance-none accent-blue-500"/>
                   </div>
                 </div>
 
-                <div className="bg-[#0a0a0c] p-4 rounded-3xl border border-gray-800 mb-6">
-                  <div className="flex items-center justify-between mb-1">
+                <div className="bg-[#070709] p-4 rounded-2xl border border-white/5 mb-6">
+                  <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="font-bold text-sm">Masterização (Compressor)</h3>
-                      <p className="text-[10px] text-gray-500 mt-0.5">Equilibra picos de volume automaticamente.</p>
+                      <h3 className="font-semibold text-sm text-gray-200">Compressor / Mastering</h3>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input type="checkbox" className="sr-only peer" checked={compressor} onChange={() => setCompressor(!compressor)} />
-                      <div className="w-12 h-6 bg-gray-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+                      <div className="w-11 h-6 bg-[#1a1a24] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
                     </label>
                   </div>
                 </div>
 
-                <button onClick={() => { setBass(0); setMid(0); setTreble(0); setCompressor(false); }} className="w-full py-3 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl text-sm font-bold transition-colors">
-                  Restaurar Original
+                <button onClick={() => { setBass(0); setMid(0); setTreble(0); setCompressor(false); }} className="w-full py-3.5 bg-[#1a1a24] active:scale-95 text-gray-300 rounded-2xl text-sm font-bold transition-all">
+                  Repor Padrão
                 </button>
               </div>
             )}
           </div>
         )}
 
-        {/* ABA 3: BIBLIOTECA E PLAYLISTS */}
+        {/* ABA 3: SALVOS */}
         {activeTab === 'library' && (
           <div className="space-y-4 animate-in fade-in duration-300">
-            
             {library.length > 0 && (
               <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
                 {playlistsDisponiveis.map(pl => (
                   <button 
                     key={pl} onClick={() => setActivePlaylist(pl)}
-                    className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold transition-all border ${activePlaylist === pl ? 'bg-blue-500 text-white border-blue-500' : 'bg-[#15151a] text-gray-400 border-gray-800'}`}
+                    className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold transition-all active:scale-95 ${activePlaylist === pl ? 'bg-blue-500 text-white' : 'bg-[#0f0f13] text-gray-400 border border-white/5'}`}
                   >
                     {pl}
                   </button>
@@ -755,39 +722,37 @@ export default function App() {
             )}
 
             {bibliotecaFiltrada.length === 0 ? (
-              <div className="text-center py-16 px-6 bg-[#15151a] rounded-[2rem] border border-gray-800/50">
-                <FolderDown className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-                <h3 className="text-gray-200 font-bold mb-1">Biblioteca Vazia</h3>
-                <p className="text-sm text-gray-500">Músicas exportadas em MP3 ficarão salvas aqui para sempre.</p>
+              <div className="text-center py-24 px-6 bg-[#0f0f13] rounded-[2rem] border border-white/5">
+                <FolderDown className="w-10 h-10 text-gray-700 mx-auto mb-4" />
+                <h3 className="text-gray-200 font-bold mb-1">Sem Gravações</h3>
+                <p className="text-xs text-gray-500">O que exportar irá aparecer aqui.</p>
               </div>
             ) : (
               bibliotecaFiltrada.map((track) => (
-                <div key={track.id} className="bg-[#15151a] p-4 rounded-[1.5rem] border border-gray-800/50 shadow-lg">
-                  <div className="flex justify-between items-start mb-3">
+                <div key={track.id} className="bg-[#0f0f13] p-5 rounded-[1.5rem] border border-white/5 shadow-lg">
+                  <div className="flex justify-between items-start mb-4">
                     <div className="flex-1 min-w-0 pr-2">
-                      <h3 className="font-bold text-base truncate text-gray-100">{track.name}</h3>
+                      <h3 className="font-bold text-sm text-gray-100 truncate">{track.name}</h3>
                       <div className="flex gap-2 mt-1.5">
-                        <span className="text-[10px] font-bold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-md border border-blue-500/20">{track.details}</span>
-                        <span className="text-[10px] font-bold text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md border border-purple-500/20 truncate max-w-[100px]">{track.playlist}</span>
+                        <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">{track.details}</span>
                       </div>
                     </div>
-                    <button onClick={() => handleDelete(track.id)} className="text-gray-500 hover:text-red-400 p-2">
+                    <button onClick={() => handleDelete(track.id)} className="text-gray-600 hover:text-red-400 transition-colors">
                       <Trash2 size={18} />
                     </button>
                   </div>
                   
-                  <audio controls src={track.url} className="w-full h-11 mb-4 rounded-lg bg-gray-900 
-                    [&::-webkit-media-controls-panel]:bg-[#0a0a0c] [&::-webkit-media-controls-current-time-display]:text-blue-400" />
+                  <audio controls src={track.url} className="w-full h-10 mb-4 rounded-lg bg-[#070709]" />
                   
                   <div className="grid grid-cols-3 gap-2">
-                    <button onClick={() => handleChangePlaylist(track.id)} className="py-2.5 bg-[#0a0a0c] rounded-xl flex items-center justify-center gap-1.5 text-[11px] font-bold text-gray-300 border border-gray-800">
-                      <ListMusic size={14} /> Playlist
+                    <button onClick={() => handleChangePlaylist(track.id)} className="py-3 bg-[#1a1a24] active:scale-95 rounded-xl flex items-center justify-center gap-1.5 text-xs font-semibold text-gray-300 transition-all">
+                      <ListMusic size={14} /> Mover
                     </button>
-                    <button onClick={() => handleDownload(track)} className="py-2.5 bg-[#0a0a0c] rounded-xl flex items-center justify-center gap-1.5 text-[11px] font-bold text-gray-300 border border-gray-800">
+                    <button onClick={() => handleDownload(track)} className="py-3 bg-[#1a1a24] active:scale-95 rounded-xl flex items-center justify-center gap-1.5 text-xs font-semibold text-gray-300 transition-all">
                       <Download size={14} /> Baixar
                     </button>
-                    <button onClick={() => handleShare(track)} className="py-2.5 bg-green-500 text-green-950 rounded-xl flex items-center justify-center gap-1.5 text-[11px] font-extrabold shadow-lg shadow-green-500/20 active:scale-95 transition-transform">
-                      <Share2 size={14} /> Partilhar
+                    <button onClick={() => handleShare(track)} className="py-3 bg-blue-600 active:bg-blue-500 text-white active:scale-95 rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold transition-all">
+                      <Share2 size={14} /> Enviar
                     </button>
                   </div>
                 </div>
@@ -798,50 +763,44 @@ export default function App() {
 
         {/* ABA 4: CRÉDITOS */}
         {activeTab === 'credits' && (
-          <div className="space-y-6 animate-in fade-in duration-300 flex flex-col items-center justify-center h-full pt-6">
-            <div className="bg-[#15151a] p-8 rounded-[2rem] border border-gray-800/60 shadow-2xl text-center w-full max-w-sm relative overflow-hidden mt-4">
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-500"></div>
-                <div className="w-20 h-20 bg-gradient-to-tr from-blue-600 to-indigo-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-[0_10px_30px_rgba(79,70,229,0.4)]">
-                    <div className="text-white"><Activity size={32} /></div>
+          <div className="space-y-6 animate-in fade-in duration-300 flex flex-col items-center justify-center h-full pt-10">
+            <div className="text-center w-full max-w-sm">
+                <div className="w-24 h-24 bg-[#0f0f13] border border-white/5 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-xl">
+                    <Activity size={40} className="text-blue-500" />
                 </div>
-                <h2 className="text-2xl font-bold text-gray-100 mb-1">AudioMIX</h2>
-                <p className="text-blue-400 text-xs font-semibold tracking-widest uppercase mb-6">Play Store Edition</p>
+                <h2 className="text-2xl font-black text-white mb-1 tracking-wide">AudioMIX</h2>
+                <p className="text-gray-500 text-xs uppercase tracking-widest mb-10">Versão 1.0</p>
                 
-                <div className="bg-[#0a0a0c] p-5 rounded-2xl border border-gray-800 mb-6 text-left shadow-inner">
-                    <p className="text-gray-500 text-[10px] uppercase tracking-widest mb-1 font-bold">Desenvolvedor & Criador</p>
-                    <p className="text-gray-200 font-extrabold text-base">Kauã Mazur dos Reis</p>
-                    
-                    <div className="w-full h-px bg-gray-800 my-4"></div>
+                <div className="bg-[#0f0f13] p-6 rounded-3xl border border-white/5 text-left shadow-lg">
+                    <p className="text-gray-600 text-[10px] uppercase tracking-widest font-bold mb-1">Criador</p>
+                    <p className="text-gray-200 font-bold text-sm mb-6">Kauã Mazur dos Reis</p>
 
-                    <p className="text-gray-500 text-[10px] uppercase tracking-widest mb-1 font-bold">Contacto / Suporte</p>
-                    <a href="mailto:kmzsuportt1@gmail.com" className="text-blue-400 font-bold text-sm hover:text-blue-300 transition-colors">kmzsuportt1@gmail.com</a>
-                </div>
-
-                <div className="text-gray-500 text-[10px] font-medium tracking-wide">
-                    <p>&copy; 2026 Kauã Mazur. Todos os direitos reservados.</p>
+                    <p className="text-gray-600 text-[10px] uppercase tracking-widest font-bold mb-1">Contacto</p>
+                    <a href="mailto:kmzsuportt1@gmail.com" className="text-blue-400 font-bold text-sm">kmzsuportt1@gmail.com</a>
                 </div>
             </div>
           </div>
         )}
       </main>
 
-      <nav className="fixed bottom-0 w-full max-w-md bg-[#111115]/95 backdrop-blur-xl border-t border-gray-800/80 flex justify-between px-4 py-2 pb-safe-area z-30">
-        <button onClick={() => setActiveTab('studio')} className={`flex flex-col items-center justify-center gap-1.5 p-2 w-[22%] rounded-2xl transition-all ${activeTab === 'studio' ? 'text-blue-400 bg-blue-500/10' : 'text-gray-500'}`}>
-          <Settings2 size={22} />
-          <span className="text-[9px] font-bold tracking-widest uppercase truncate w-full text-center">Básico</span>
+      {/* Navegação Inferior */}
+      <nav className="fixed bottom-0 w-full max-w-md bg-[#070709]/95 backdrop-blur-xl border-t border-white/5 flex justify-between px-3 py-2 pb-safe-area z-30">
+        <button onClick={() => setActiveTab('studio')} className={`flex flex-col items-center justify-center gap-1 p-2 w-1/4 rounded-xl transition-all active:scale-90 ${activeTab === 'studio' ? 'text-white' : 'text-gray-600'}`}>
+          <Settings2 size={20} className={activeTab === 'studio' ? 'text-blue-500' : ''} />
+          <span className="text-[10px] font-semibold">Básico</span>
         </button>
-        <button onClick={() => setActiveTab('pro')} className={`flex flex-col items-center justify-center gap-1.5 p-2 w-[22%] rounded-2xl transition-all ${activeTab === 'pro' ? 'text-blue-400 bg-blue-500/10' : 'text-gray-500'}`}>
-          <Sliders size={22} />
-          <span className="text-[9px] font-bold tracking-widest uppercase truncate w-full text-center">Pro</span>
+        <button onClick={() => setActiveTab('pro')} className={`flex flex-col items-center justify-center gap-1 p-2 w-1/4 rounded-xl transition-all active:scale-90 ${activeTab === 'pro' ? 'text-white' : 'text-gray-600'}`}>
+          <Sliders size={20} className={activeTab === 'pro' ? 'text-blue-500' : ''} />
+          <span className="text-[10px] font-semibold">Mixer</span>
         </button>
-        <button onClick={() => setActiveTab('library')} className={`flex flex-col items-center justify-center gap-1.5 p-2 w-[22%] rounded-2xl transition-all relative ${activeTab === 'library' ? 'text-blue-400 bg-blue-500/10' : 'text-gray-500'}`}>
-          <FolderDown size={22} />
-          <span className="text-[9px] font-bold tracking-widest uppercase truncate w-full text-center">Salvos</span>
-          {library.length > 0 && <span className="absolute top-2 right-4 w-2 h-2 bg-blue-500 rounded-full border border-[#111115]"></span>}
+        <button onClick={() => setActiveTab('library')} className={`flex flex-col items-center justify-center gap-1 p-2 w-1/4 rounded-xl transition-all active:scale-90 relative ${activeTab === 'library' ? 'text-white' : 'text-gray-600'}`}>
+          <FolderDown size={20} className={activeTab === 'library' ? 'text-blue-500' : ''} />
+          <span className="text-[10px] font-semibold">Salvos</span>
+          {library.length > 0 && <span className="absolute top-2 right-6 w-2 h-2 bg-blue-500 rounded-full"></span>}
         </button>
-        <button onClick={() => setActiveTab('credits')} className={`flex flex-col items-center justify-center gap-1.5 p-2 w-[22%] rounded-2xl transition-all ${activeTab === 'credits' ? 'text-blue-400 bg-blue-500/10' : 'text-gray-500'}`}>
-          <User size={22} />
-          <span className="text-[9px] font-bold tracking-widest uppercase truncate w-full text-center">Créditos</span>
+        <button onClick={() => setActiveTab('credits')} className={`flex flex-col items-center justify-center gap-1 p-2 w-1/4 rounded-xl transition-all active:scale-90 ${activeTab === 'credits' ? 'text-white' : 'text-gray-600'}`}>
+          <User size={20} className={activeTab === 'credits' ? 'text-blue-500' : ''} />
+          <span className="text-[10px] font-semibold">Créditos</span>
         </button>
       </nav>
       
