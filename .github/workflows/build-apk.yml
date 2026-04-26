@@ -1,0 +1,54 @@
+name: Gerar APK e Release Android
+
+on:
+  push:
+    branches: [ main ] # Roda o robô toda vez que você enviar algo para a main
+
+# Permissão necessária para o robô poder criar a Release no seu repositório
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Baixar o código do repositório
+      uses: actions/checkout@v4
+
+    - name: Configurar Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - name: Configurar Java (Necessário para Android)
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Instalar Dependências (NPM)
+      run: npm install
+
+    - name: Compilar Código React
+      run: npm run build
+
+    - name: Montar Projeto Android (Capacitor)
+      run: npx cap add android
+
+    - name: Sincronizar Código com o Android
+      run: npx cap sync android
+
+    - name: Compilar o APK
+      working-directory: ./android
+      run: ./gradlew assembleDebug
+
+    - name: Publicar APK na aba Releases
+      uses: ncipollo/release-action@v1
+      with:
+        artifacts: "android/app/build/outputs/apk/debug/app-debug.apk"
+        tag: "latest"
+        name: "Última Versão do APK (Beta)"
+        body: "Baixe o arquivo `app-debug.apk` abaixo e instale no seu celular para testar o Estúdio Playback."
+        allowUpdates: true # Substitui o APK antigo pelo novo automaticamente
+        token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Estilos nativos para comportamento de App no telemóvel */
+body {
+  background-color: #0a0a0c;
+  color: #f3f4f6;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+.pb-safe-area { padding-bottom: env(safe-area-inset-bottom, 24px); }
+.pt-safe-area { padding-top: env(safe-area-inset-top, 0px); }
+
+/* Scrollbar invisível/elegante */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #374151; border-radius: 10px; }

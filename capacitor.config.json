@@ -1,0 +1,6 @@
+{
+  "appId": "com.kauamazur.estudioplayback",
+  "appName": "Estúdio Playback",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}
