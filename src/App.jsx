@@ -135,14 +135,16 @@ export default function App() {
   const pausedAtRef = useRef(0);
 
   useEffect(() => {
+    // Carrega o codificador MP3
     const script = document.createElement('script');
     script.src = "https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.1/lame.min.js";
     document.body.appendChild(script);
 
+    // Carrega a base de dados
     getLibraryFromDB().then(tracks => {
       const tracksComUrl = tracks.map(t => ({
         ...t,
-        url: URL.createObjectURL(t.blob)
+        url: URL.createObjectURL(new Blob([t.blob], { type: 'audio/mpeg' }))
       }));
       setLibrary(tracksComUrl.reverse());
     });
@@ -436,41 +438,58 @@ export default function App() {
     }
   };
 
-  // --- SOLUÇÃO DE PARTILHA WEB NATIVA (Sem dependências extras) ---
-  const handleShare = async (track) => {
+  // --- SOLUÇÃO FORÇADA PARA TRANSFERIR (DOWNLOAD) E PARTILHAR ---
+  
+  const handleDownload = (track) => {
     try {
-      // Usar a etiqueta correta (audio/mpeg) é o que faz funcionar no Android S25
-      const fileToShare = new File([track.blob], `${track.name}.mp3`, { type: 'audio/mpeg' });
+      // Força o tipo para 'application/octet-stream' para obrigar o Android a iniciar o download
+      const blobUrl = URL.createObjectURL(new Blob([track.blob], { type: 'application/octet-stream' }));
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = blobUrl;
+      a.download = `${track.name}.mp3`;
+      document.body.appendChild(a);
+      a.click();
       
-      // O Capacitor WebView moderno suporta navigator.share com ficheiros.
-      if (navigator.share && navigator.canShare && navigator.canShare({ files: [fileToShare] })) {
-        await navigator.share({ 
-          title: track.name, 
-          text: 'Ouça o meu playback editado no AudioMIX!',
-          files: [fileToShare] 
-        });
-      } else if (navigator.share) {
-         // Fallback se o aparelho não suportar envio de ficheiros diretos
-         await navigator.share({
-           title: track.name,
-           text: 'Ouça o meu playback editado no AudioMIX!'
-         });
-      } else {
-        throw new Error("A API de partilha não é suportada neste dispositivo.");
-      }
-    } catch (err) {
-      console.log("Partilha nativa falhou. Redirecionando para a transferência normal.", err);
-      handleDownload(track);
+      // Limpeza segura da memória após clique
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+      }, 1000);
+    } catch (e) {
+      alert("Erro ao tentar transferir: " + e.message);
     }
   };
 
-  const handleDownload = (track) => {
-    const a = document.createElement('a');
-    a.href = track.url;
-    a.download = `${track.name}.mp3`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+  const handleShare = async (track) => {
+    try {
+      // Garante o formato 'audio/mpeg' exigido pelo WhatsApp
+      const fileToShare = new File([track.blob], `${track.name}.mp3`, { type: 'audio/mpeg' });
+      
+      if (navigator.share) {
+        if (navigator.canShare && navigator.canShare({ files: [fileToShare] })) {
+            // Suporta envio de ficheiros (Android Atualizado)
+            await navigator.share({
+                title: track.name,
+                text: 'Ouça o meu playback editado no AudioMIX!',
+                files: [fileToShare]
+            });
+        } else {
+            // Suporta partilha, mas não de ficheiros diretos
+            alert("A partilha direta de ficheiros não é suportada neste ecrã. O ficheiro vai ser transferido para o seu telemóvel para enviar manualmente.");
+            handleDownload(track);
+        }
+      } else {
+        alert("O seu aparelho não suporta a função partilhar. A transferir o ficheiro...");
+        handleDownload(track);
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.error("Partilha cancelada ou falhou:", err);
+        alert("Ocorreu um erro ao tentar partilhar com outras Apps. A iniciar transferência...");
+        handleDownload(track);
+      }
+    }
   };
 
   const handleRename = async (id, oldName) => {
@@ -767,7 +786,7 @@ export default function App() {
                     <button onClick={() => handleDownload(track)} className="py-2.5 bg-[#0a0a0c] rounded-xl flex items-center justify-center gap-1.5 text-[11px] font-bold text-gray-300 border border-gray-800">
                       <Download size={14} /> Baixar
                     </button>
-                    <button onClick={() => handleShare(track)} className="py-2.5 bg-green-500 text-green-950 rounded-xl flex items-center justify-center gap-1.5 text-[11px] font-extrabold shadow-lg shadow-green-500/20 active:scale-95">
+                    <button onClick={() => handleShare(track)} className="py-2.5 bg-green-500 text-green-950 rounded-xl flex items-center justify-center gap-1.5 text-[11px] font-extrabold shadow-lg shadow-green-500/20 active:scale-95 transition-transform">
                       <Share2 size={14} /> Partilhar
                     </button>
                   </div>
