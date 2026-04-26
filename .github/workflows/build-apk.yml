@@ -2,9 +2,8 @@ name: Gerar APK e Release Android
 
 on:
   push:
-    branches: [ main ] # Roda o robô toda vez que você enviar algo para a main
+    branches: [ main ]
 
-# Permissão necessária para o robô poder criar a Release no seu repositório
 permissions:
   contents: write
 
@@ -36,7 +35,13 @@ jobs:
     - name: Montar Projeto Android (Capacitor)
       run: npx cap add android
 
-    - name: Sincronizar Código com o Android
+    - name: Instalar Ferramenta de Ícones
+      run: npm install @capacitor/assets -D
+
+    - name: Gerar Ícones e Splash Screens Oficiais
+      run: npx capacitor-assets generate --android
+
+    - name: Sincronizar Código e Ícones com o Android
       run: npx cap sync android
 
     - name: Compilar o APK
@@ -48,7 +53,7 @@ jobs:
       with:
         artifacts: "android/app/build/outputs/apk/debug/app-debug.apk"
         tag: "latest"
-        name: "Última Versão do APK (Beta)"
-        body: "Baixe o arquivo `app-debug.apk` abaixo e instale no seu celular para testar o Estúdio Playback."
-        allowUpdates: true # Substitui o APK antigo pelo novo automaticamente
+        name: "AudioMIX - Nova Versão (Com Capa)"
+        body: "Baixe o ficheiro `app-debug.apk` abaixo e instale. O nome da app foi atualizado para AudioMIX e o ícone oficial foi aplicado!"
+        allowUpdates: true
         token: ${{ secrets.GITHUB_TOKEN }}

@@ -2,12 +2,11 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   Upload, Play, Pause, Download, Share2, Edit2, Trash2, 
   MicOff, Settings2, FolderDown, Activity, Check,
-  AlertCircle, Sliders, Scissors, Plus, ListMusic
+  AlertCircle, Sliders, Scissors, Plus, ListMusic, X, User
 } from 'lucide-react';
 
 // ==========================================
 // 1. BASE DE DADOS LOCAL (IndexedDB)
-// Mantém as músicas salvas mesmo fechando o App
 // ==========================================
 const DB_NAME = 'EstudioPlaybackDB';
 const STORE_NAME = 'library';
@@ -52,31 +51,27 @@ const deleteTrackFromDB = async (id) => {
 };
 
 // ==========================================
-// 2. CODIFICADOR MP3 ASSÍNCRONO (Ultra Leve)
-// Requer lamejs injetado dinamicamente
+// 2. CODIFICADOR MP3 ASSÍNCRONO
 // ==========================================
 async function encodeMP3Async(buffer, onProgress) {
   if (!window.lamejs) throw new Error("Aguarde, codificador MP3 a carregar...");
   
   const channels = buffer.numberOfChannels;
   const sampleRate = buffer.sampleRate;
-  // Qualidade de estúdio (128kbps) para MP3
   const mp3encoder = new window.lamejs.Mp3Encoder(channels, sampleRate, 128); 
   const mp3Data = [];
 
   const left = buffer.getChannelData(0);
   const right = channels > 1 ? buffer.getChannelData(1) : left;
-  const sampleBlockSize = 1152; // Padrão do MP3
+  const sampleBlockSize = 1152; 
 
   let pos = 0;
   return new Promise((resolve) => {
     function processChunk() {
-      // Processa em blocos grandes para ser rápido, mas não travar
       const end = Math.min(pos + sampleBlockSize * 10, buffer.length); 
       const leftChunk = new Int16Array(end - pos);
       const rightChunk = new Int16Array(end - pos);
 
-      // Converte sinal para o codificador MP3
       for (let i = 0; i < end - pos; i++) {
         leftChunk[i] = left[pos + i] * 32767.5;
         rightChunk[i] = right[pos + i] * 32767.5;
@@ -89,12 +84,12 @@ async function encodeMP3Async(buffer, onProgress) {
 
       if (pos < buffer.length) {
         onProgress(Math.round((pos / buffer.length) * 100));
-        setTimeout(processChunk, 10); // Pausa de 10ms (Anti-Crash do Android)
+        setTimeout(processChunk, 10); 
       } else {
         const flushBuf = mp3encoder.flush();
         if (flushBuf.length > 0) mp3Data.push(flushBuf);
         onProgress(100);
-        resolve(new Blob(mp3Data, { type: 'audio/mp3' }));
+        resolve(new Blob(mp3Data, { type: 'audio/mpeg' }));
       }
     }
     processChunk();
@@ -120,7 +115,9 @@ export default function App() {
   
   // Controles do Estúdio PRO
   const [bass, setBass] = useState(0);
+  const [mid, setMid] = useState(0);
   const [treble, setTreble] = useState(0);
+  const [compressor, setCompressor] = useState(false);
 
   // Controles de Reprodução (Seeker & Loop)
   const [currentTime, setCurrentTime] = useState(0);
@@ -143,16 +140,12 @@ export default function App() {
   const startTimeRef = useRef(0);
   const pausedAtRef = useRef(0);
 
-  // 1. Carregar Script do LameJS (Para MP3) e Base de Dados Inicial
   useEffect(() => {
-    // Injeta a biblioteca MP3 dinamicamente (para não precisar de npm install)
     const script = document.createElement('script');
     script.src = "https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.1/lame.min.js";
     document.body.appendChild(script);
 
-    // Carrega músicas guardadas
     getLibraryFromDB().then(tracks => {
-      // O blob salvo na DB precisa de um novo URL a cada inicialização da app
       const tracksComUrl = tracks.map(t => ({
         ...t,
         url: URL.createObjectURL(t.blob)
@@ -179,7 +172,8 @@ export default function App() {
     stopPreview(); 
     
     // Reseta Controles
-    setPitch(0); setRemoveVocals(false); setBass(0); setTreble(0);
+    setPitch(0); setRemoveVocals(false); 
+    setBass(0); setMid(0); setTreble(0); setCompressor(false);
     setLoopA(null); setLoopB(null); setCurrentTime(0);
     pausedAtRef.current = 0;
 
@@ -190,33 +184,55 @@ export default function App() {
     setDuration(audioBuffer.duration);
   };
 
-  // --- MOTOR DE ÁUDIO HD (Graves, Agudos, Voz, Tom e Analisador) ---
+  // --- MOTOR DE ÁUDIO HD ---
   const applyAudioRouting = (ctx, source, isOffline = false) => {
     const playbackRate = Math.pow(2, pitch / 12);
     source.playbackRate.value = playbackRate;
 
-    // Filtros PRO (Graves e Agudos)
+    // 1. Filtros PRO (Graves, Médios, Agudos)
     const bassFilter = ctx.createBiquadFilter();
     bassFilter.type = 'lowshelf';
     bassFilter.frequency.value = 250;
     bassFilter.gain.value = bass;
+
+    const midFilter = ctx.createBiquadFilter();
+    midFilter.type = 'peaking';
+    midFilter.frequency.value = 1000;
+    midFilter.Q.value = 1.0;
+    midFilter.gain.value = mid;
 
     const trebleFilter = ctx.createBiquadFilter();
     trebleFilter.type = 'highshelf';
     trebleFilter.frequency.value = 4000;
     trebleFilter.gain.value = treble;
 
-    source.connect(bassFilter);
-    bassFilter.connect(trebleFilter);
-    let finalOutput = trebleFilter;
+    // 2. Compressor de Masterização (Estúdio Pro)
+    const dynamicsCompressor = ctx.createDynamicsCompressor();
+    if (compressor) {
+      dynamicsCompressor.threshold.value = -24;
+      dynamicsCompressor.knee.value = 30;
+      dynamicsCompressor.ratio.value = 12;
+      dynamicsCompressor.attack.value = 0.003;
+      dynamicsCompressor.release.value = 0.25;
+    } else {
+      dynamicsCompressor.threshold.value = 0;
+      dynamicsCompressor.ratio.value = 1;
+    }
 
-    // Filtro Básico (Remover Voz - Beta)
+    // Cadeia de Sinal PRO
+    source.connect(bassFilter);
+    bassFilter.connect(midFilter);
+    midFilter.connect(trebleFilter);
+    trebleFilter.connect(dynamicsCompressor);
+    let finalOutput = dynamicsCompressor;
+
+    // 3. Filtro Básico (Remover Voz - Beta)
     if (removeVocals && audioBufferRef.current.numberOfChannels > 1) {
       const splitter = ctx.createChannelSplitter(2);
-      trebleFilter.connect(splitter);
+      dynamicsCompressor.connect(splitter);
 
-      const mid = ctx.createGain(); mid.gain.value = 0.5;
-      splitter.connect(mid, 0); splitter.connect(mid, 1);
+      const center = ctx.createGain(); center.gain.value = 0.5;
+      splitter.connect(center, 0); splitter.connect(center, 1);
 
       const sideL = ctx.createGain(); sideL.gain.value = 0.5;
       const sideR = ctx.createGain(); sideR.gain.value = -0.5;
@@ -225,7 +241,7 @@ export default function App() {
       sideL.connect(sideSum); sideR.connect(sideSum);
 
       const eq1 = ctx.createBiquadFilter(); eq1.type = 'peaking'; eq1.frequency.value = 1200; eq1.Q.value = 0.7; eq1.gain.value = -22;
-      mid.connect(eq1);
+      center.connect(eq1);
       const eq2 = ctx.createBiquadFilter(); eq2.type = 'peaking'; eq2.frequency.value = 3500; eq2.Q.value = 1.0; eq2.gain.value = -16;
       eq1.connect(eq2);
 
@@ -238,10 +254,10 @@ export default function App() {
       finalOutput = merger;
     }
 
-    // Analisador para Efeito Visual (Apenas quando não está offline)
+    // Analisador para Efeito Visual
     if (!isOffline) {
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 128;
+      analyser.fftSize = 256; 
       finalOutput.connect(analyser);
       analyserRef.current = analyser;
     }
@@ -256,6 +272,7 @@ export default function App() {
     const ctx = canvas.getContext('2d');
     const width = canvas.width;
     const height = canvas.height;
+    const centerY = height / 2;
     
     const bufferLength = analyserRef.current.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
@@ -263,20 +280,18 @@ export default function App() {
 
     ctx.clearRect(0, 0, width, height);
     
-    const barWidth = (width / bufferLength) * 2.5;
-    let barHeight;
+    const barWidth = (width / bufferLength) * 2;
     let x = 0;
 
-    for(let i = 0; i < bufferLength; i++) {
-      barHeight = dataArray[i] / 2.5;
-      
-      // Degrade Futurista
-      const gradient = ctx.createLinearGradient(0, height, 0, 0);
-      gradient.addColorStop(0, '#3b82f6'); // Azul
-      gradient.addColorStop(1, '#6366f1'); // Indigo
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, '#38bdf8'); 
+    gradient.addColorStop(0.5, '#3b82f6'); 
+    gradient.addColorStop(1, '#818cf8'); 
 
+    for(let i = 0; i < bufferLength; i++) {
+      const barHeight = (dataArray[i] / 255) * (height / 2);
       ctx.fillStyle = gradient;
-      ctx.fillRect(x, height - barHeight, barWidth, barHeight);
+      ctx.fillRect(x, centerY - barHeight, barWidth, barHeight * 2);
       x += barWidth + 1;
     }
     
@@ -288,13 +303,12 @@ export default function App() {
     
     const ctx = audioContextRef.current;
     const playbackRate = Math.pow(2, pitch / 12);
-    // Tempo atual = (Tempo do contexto - tempo que começou) * velocidade + de onde pausou
     let current = ((ctx.currentTime - startTimeRef.current) * playbackRate) + pausedAtRef.current;
     
-    // Lógica do LOOP A-B
+    // Lógica do LOOP A-B Melhorada
     if (loopB !== null && current >= loopB) {
       seekTo(loopA || 0);
-      return; // Previne atualizar o frame após saltar
+      return; 
     }
 
     if (current >= duration) {
@@ -313,7 +327,10 @@ export default function App() {
     initAudioContext();
     const ctx = audioContextRef.current;
 
-    if (sourceNodeRef.current) sourceNodeRef.current.disconnect();
+    if (sourceNodeRef.current) {
+        sourceNodeRef.current.onended = null;
+        sourceNodeRef.current.disconnect();
+    }
 
     const source = ctx.createBufferSource();
     source.buffer = audioBufferRef.current;
@@ -322,28 +339,28 @@ export default function App() {
     finalNode.connect(ctx.destination);
     
     source.start(0, pausedAtRef.current);
-    const playbackRate = Math.pow(2, pitch / 12);
     startTimeRef.current = ctx.currentTime;
     
     sourceNodeRef.current = source;
     setIsPlaying(true);
     
-    // Inicia a animação das ondas e a barra de tempo
     if(animationRef.current) cancelAnimationFrame(animationRef.current);
     drawVisualizer();
     requestAnimationFrame(updateSeekerAndLoop);
   };
 
   const stopPreview = () => {
-    if (sourceNodeRef.current && isPlaying) {
-      sourceNodeRef.current.stop();
+    if (sourceNodeRef.current) {
+      sourceNodeRef.current.onended = null; 
+      if (isPlaying) {
+        sourceNodeRef.current.stop();
+        const ctx = audioContextRef.current;
+        const playbackRate = Math.pow(2, pitch / 12);
+        pausedAtRef.current = pausedAtRef.current + ((ctx.currentTime - startTimeRef.current) * playbackRate);
+      }
       setIsPlaying(false);
-      if(animationRef.current) cancelAnimationFrame(animationRef.current);
-      
-      const ctx = audioContextRef.current;
-      const playbackRate = Math.pow(2, pitch / 12);
-      pausedAtRef.current = pausedAtRef.current + ((ctx.currentTime - startTimeRef.current) * playbackRate);
     }
+    if(animationRef.current) cancelAnimationFrame(animationRef.current);
   };
 
   const togglePlay = () => {
@@ -360,21 +377,24 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (isPlaying) {
+    if (isPlaying && file) {
       stopPreview();
       setTimeout(() => playPreview(), 30);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pitch, removeVocals, bass, treble]);
+  }, [pitch, removeVocals, bass, mid, treble, compressor]);
 
-  // --- RENDERIZAÇÃO MP3 ASSÍNCRONA ---
+  // --- RENDERIZAÇÃO MP3 ---
   const processAndSave = async () => {
     if (!audioBufferRef.current) return;
     if (!window.lamejs) { alert("Aguarde um segundo, carregando motor MP3..."); return; }
     
     setIsProcessing(true);
     setRenderProgress(0);
-    stopPreview();
+    stopPreview(); 
+    setIsPlaying(false); 
+    
+    if (audioContextRef.current) audioContextRef.current.suspend();
 
     try {
       const originalBuffer = audioBufferRef.current;
@@ -397,7 +417,6 @@ export default function App() {
       setRenderProgress(5); 
       const renderedBuffer = await offlineCtx.startRendering();
       
-      // Converte para MP3 usando o motor injetado
       const mp3Blob = await encodeMP3Async(renderedBuffer, (percent) => {
         setRenderProgress(Math.max(5, percent)); 
       });
@@ -410,36 +429,56 @@ export default function App() {
         url: url,
         blob: mp3Blob,
         playlist: 'Músicas Originais',
-        details: `Tom: ${pitch === 0 ? 'Orig' : pitch} | MP3 | PRO`
+        details: `Tom: ${pitch === 0 ? 'Orig' : pitch} | PRO`
       };
 
-      // Guarda na Base de Dados e na Tela
       await saveTrackToDB(newTrack);
       setLibrary([newTrack, ...library]);
       setActiveTab('library');
       
-      // Limpa estúdio
-      setFile(null); setPitch(0); setRemoveVocals(false); setBass(0); setTreble(0);
+      setFile(null); 
+      setPitch(0); setRemoveVocals(false); 
+      setBass(0); setMid(0); setTreble(0); setCompressor(false);
       setLoopA(null); setLoopB(null); setCurrentTime(0); pausedAtRef.current = 0;
+      
+      if (audioContextRef.current) audioContextRef.current.resume();
+
     } catch (error) {
       console.error(error);
-      alert("Houve um erro. Tente novamente.");
+      alert("Houve um erro na renderização.");
     } finally {
       setIsProcessing(false);
       setRenderProgress(0);
     }
   };
 
-  // --- AÇÕES DA BIBLIOTECA E PLAYLISTS ---
+  // --- AÇÕES DA BIBLIOTECA ---
   const handleShare = async (track) => {
-    const fileToShare = new File([track.blob], `${track.name}.mp3`, { type: 'audio/mp3' });
-    if (navigator.canShare && navigator.canShare({ files: [fileToShare] })) {
-      try {
-        await navigator.share({ title: track.name, files: [fileToShare] });
-      } catch (err) { console.log("Partilha cancelada"); }
-    } else {
-      alert("O seu dispositivo não suporta. Clique para ouvir/baixar.");
+    try {
+      const fileToShare = new File([track.blob], `${track.name}.mp3`, { type: 'audio/mpeg' });
+      
+      if (navigator.share) {
+        await navigator.share({ 
+          title: track.name, 
+          text: 'Ouça o meu áudio editado no AudioMIX!',
+          files: [fileToShare] 
+        });
+      } else {
+        throw new Error("API Share não suportada.");
+      }
+    } catch (err) {
+      console.log("Partilha nativa falhou. Redirecionando para download normal.", err);
+      handleDownload(track);
     }
+  };
+
+  const handleDownload = (track) => {
+    const a = document.createElement('a');
+    a.href = track.url;
+    a.download = `${track.name}.mp3`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   const handleRename = async (id, oldName) => {
@@ -463,7 +502,7 @@ export default function App() {
   };
 
   const handleDelete = async (id) => {
-    if(confirm("Remover esta música da biblioteca permanentemente?")) {
+    if(confirm("Remover esta música permanentemente?")) {
         await deleteTrackFromDB(id);
         setLibrary(library.filter(t => t.id !== id));
     }
@@ -488,7 +527,7 @@ export default function App() {
           <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-indigo-500 bg-clip-text text-transparent flex items-center gap-2">
             <Activity className="text-blue-500" size={20} /> AudioMIX
           </h1>
-          <p className="text-[10px] text-gray-500 font-medium tracking-widest uppercase mt-0.5">MP3 Engine • V2.0</p>
+          <p className="text-[10px] text-gray-500 font-medium tracking-widest uppercase mt-0.5">MP3 Engine • PRO</p>
         </div>
       </header>
 
@@ -512,38 +551,52 @@ export default function App() {
             ) : (
               <div className="bg-[#15151a] p-5 rounded-[2rem] shadow-xl border border-gray-800/50 relative">
                 
-                {/* Visualizador de Ondas Sonoras */}
-                <div className="w-full h-24 bg-[#0a0a0c] rounded-2xl mb-6 flex items-end justify-center overflow-hidden border border-gray-800 relative shadow-inner">
-                  <div className="absolute top-2 left-3 text-[10px] text-gray-600 font-bold uppercase tracking-widest flex items-center gap-1">
-                    <Activity size={10}/> Visualizador
+                {/* Visualizador de Ondas Sonoras Melhorado */}
+                <div className="w-full h-24 bg-[#0a0a0c] rounded-2xl mb-6 flex items-center justify-center overflow-hidden border border-gray-800 relative shadow-inner">
+                  <canvas ref={canvasRef} width="300" height="80" className="w-full h-full opacity-90" />
+                  <div className="absolute top-2 left-3 text-[10px] text-blue-500/70 font-bold uppercase tracking-widest">
+                    Live Feed
                   </div>
-                  <canvas ref={canvasRef} width="300" height="80" className="w-full h-full opacity-80" />
                 </div>
 
                 <div className="text-center mb-4">
                   <h2 className="text-sm font-bold text-gray-100 truncate px-4">{fileName}</h2>
                 </div>
 
-                {/* Seeker (Barra de Tempo) e Loop */}
+                {/* Seeker (Barra de Tempo) e Loop Intuitivo */}
                 <div className="mb-8">
-                  <div className="flex justify-between text-[10px] text-gray-400 font-bold mb-2">
+                  <div className="flex justify-between text-[10px] text-gray-400 font-bold mb-3">
                     <span>{formatTime(currentTime)}</span>
-                    <div className="flex gap-2">
-                      <button onClick={() => setLoopA(loopA === null ? currentTime : null)} className={`px-2 py-0.5 rounded ${loopA !== null ? 'bg-blue-500 text-white' : 'bg-gray-800 text-gray-500'}`}>A</button>
-                      <button onClick={() => setLoopB(loopB === null ? currentTime : null)} className={`px-2 py-0.5 rounded ${loopB !== null ? 'bg-blue-500 text-white' : 'bg-gray-800 text-gray-500'}`}>B</button>
-                    </div>
                     <span>{formatTime(duration)}</span>
                   </div>
                   <input 
                     type="range" min="0" max={duration || 100} value={currentTime} 
                     onChange={(e) => seekTo(e.target.value)}
-                    className="w-full h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                    className="w-full h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-blue-500 mb-4"
                   />
-                  {(loopA !== null || loopB !== null) && (
-                    <div className="text-center mt-2 text-[10px] text-blue-400">
-                      <Scissors size={10} className="inline mr-1"/> Modo Loop Ativo
+                  
+                  {/* Controlos de Loop Claros */}
+                  <div className="flex items-center justify-between bg-[#0a0a0c] p-2 rounded-xl border border-gray-800">
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => setLoopA(currentTime)}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${loopA !== null ? 'bg-blue-500 text-white' : 'bg-gray-800 text-gray-400'}`}
+                      >
+                        {loopA !== null ? `A: ${formatTime(loopA)}` : 'Marcar A'}
+                      </button>
+                      <button 
+                        onClick={() => setLoopB(currentTime)}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${loopB !== null ? 'bg-blue-500 text-white' : 'bg-gray-800 text-gray-400'}`}
+                      >
+                        {loopB !== null ? `B: ${formatTime(loopB)}` : 'Marcar B'}
+                      </button>
                     </div>
-                  )}
+                    {(loopA !== null || loopB !== null) && (
+                      <button onClick={() => {setLoopA(null); setLoopB(null);}} className="text-red-400 p-1.5 hover:bg-red-500/10 rounded-lg transition-colors">
+                        <X size={18} />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Player */}
@@ -625,43 +678,60 @@ export default function App() {
               <div className="text-center py-20 px-6 bg-[#15151a] rounded-[2rem] border border-gray-800/50">
                 <Sliders className="w-12 h-12 text-gray-600 mx-auto mb-4" />
                 <h3 className="text-gray-200 font-bold mb-2">Estúdio Pro Bloqueado</h3>
-                <p className="text-sm text-gray-500 mb-6">Adicione uma música no "Estúdio Básico" primeiro para desbloquear o Equalizador.</p>
+                <p className="text-sm text-gray-500 mb-6">Adicione uma música no "Estúdio Básico" primeiro para desbloquear a Mesa de Mistura.</p>
                 <button onClick={() => setActiveTab('studio')} className="px-6 py-2.5 bg-blue-500/10 text-blue-400 rounded-full text-sm font-bold">Abrir Básico</button>
               </div>
             ) : (
               <div className="bg-[#15151a] p-5 rounded-[2rem] shadow-xl border border-gray-800/50 relative">
                 <div className="flex items-center justify-center gap-2 mb-8">
                   <Sliders className="text-blue-500" size={24}/>
-                  <h2 className="text-xl font-bold">Equalizador PRO</h2>
+                  <h2 className="text-xl font-bold">Mesa de Mistura PRO</h2>
                 </div>
 
-                <div className="bg-[#0a0a0c] p-6 rounded-3xl border border-gray-800 mb-6">
-                  <div className="mb-8">
-                    <div className="flex justify-between mb-2">
-                      <span className="font-bold text-sm text-gray-200">Potência de Graves</span>
-                      <span className="text-xs text-blue-400 font-bold">{bass > 0 ? '+'+bass : bass} dB</span>
-                    </div>
-                    <input 
-                      type="range" min="-15" max="15" value={bass} 
-                      onChange={(e) => setBass(Number(e.target.value))}
-                      className="w-full h-2 bg-gray-800 rounded-lg appearance-none accent-blue-500"
-                    />
-                  </div>
-
+                <div className="bg-[#0a0a0c] p-6 rounded-3xl border border-gray-800 mb-6 space-y-6">
+                  {/* Graves */}
                   <div>
                     <div className="flex justify-between mb-2">
-                      <span className="font-bold text-sm text-gray-200">Brilho de Agudos</span>
+                      <span className="font-bold text-sm text-gray-200">Graves (Bass)</span>
+                      <span className="text-xs text-blue-400 font-bold">{bass > 0 ? '+'+bass : bass} dB</span>
+                    </div>
+                    <input type="range" min="-15" max="15" value={bass} onChange={(e) => setBass(Number(e.target.value))} className="w-full h-2 bg-gray-800 rounded-lg appearance-none accent-blue-500"/>
+                  </div>
+                  
+                  {/* Médios */}
+                  <div>
+                    <div className="flex justify-between mb-2">
+                      <span className="font-bold text-sm text-gray-200">Médios (Mid)</span>
+                      <span className="text-xs text-blue-400 font-bold">{mid > 0 ? '+'+mid : mid} dB</span>
+                    </div>
+                    <input type="range" min="-15" max="15" value={mid} onChange={(e) => setMid(Number(e.target.value))} className="w-full h-2 bg-gray-800 rounded-lg appearance-none accent-blue-500"/>
+                  </div>
+
+                  {/* Agudos */}
+                  <div>
+                    <div className="flex justify-between mb-2">
+                      <span className="font-bold text-sm text-gray-200">Agudos (Treble)</span>
                       <span className="text-xs text-blue-400 font-bold">{treble > 0 ? '+'+treble : treble} dB</span>
                     </div>
-                    <input 
-                      type="range" min="-15" max="15" value={treble} 
-                      onChange={(e) => setTreble(Number(e.target.value))}
-                      className="w-full h-2 bg-gray-800 rounded-lg appearance-none accent-blue-500"
-                    />
+                    <input type="range" min="-15" max="15" value={treble} onChange={(e) => setTreble(Number(e.target.value))} className="w-full h-2 bg-gray-800 rounded-lg appearance-none accent-blue-500"/>
                   </div>
                 </div>
 
-                <button onClick={() => { setBass(0); setTreble(0); }} className="w-full py-3 bg-gray-800 text-gray-300 rounded-xl text-sm font-bold">
+                {/* Compressor / Mastering */}
+                <div className="bg-[#0a0a0c] p-4 rounded-3xl border border-gray-800 mb-6">
+                  <div className="flex items-center justify-between mb-1">
+                    <div>
+                      <h3 className="font-bold text-sm">Masterização (Compressor)</h3>
+                      <p className="text-[10px] text-gray-500 mt-0.5">Equilibra picos de volume automaticamente.</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" className="sr-only peer" checked={compressor} onChange={() => setCompressor(!compressor)} />
+                      <div className="w-12 h-6 bg-gray-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+                    </label>
+                  </div>
+                </div>
+
+                <button onClick={() => { setBass(0); setMid(0); setTreble(0); setCompressor(false); }} className="w-full py-3 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl text-sm font-bold transition-colors">
                   Restaurar Original
                 </button>
               </div>
@@ -720,7 +790,7 @@ export default function App() {
                       <Edit2 size={14} /> Renomear
                     </button>
                     <button onClick={() => handleShare(track)} className="py-2.5 bg-green-500 text-green-950 rounded-xl flex items-center justify-center gap-1.5 text-[11px] font-extrabold shadow-lg shadow-green-500/20 active:scale-95">
-                      <Share2 size={14} /> WhatsApp
+                      <Share2 size={14} /> Partilhar
                     </button>
                   </div>
                 </div>
@@ -728,22 +798,54 @@ export default function App() {
             )}
           </div>
         )}
+
+        {/* ABA 4: CRÉDITOS */}
+        {activeTab === 'credits' && (
+          <div className="space-y-6 animate-in fade-in duration-300 flex flex-col items-center justify-center h-full pt-6">
+            <div className="bg-[#15151a] p-8 rounded-[2rem] border border-gray-800/60 shadow-2xl text-center w-full max-w-sm relative overflow-hidden mt-4">
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-500"></div>
+                <div className="w-20 h-20 bg-gradient-to-tr from-blue-600 to-indigo-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-[0_10px_30px_rgba(79,70,229,0.4)]">
+                    <div className="text-white"><Activity size={32} /></div>
+                </div>
+                <h2 className="text-2xl font-bold text-gray-100 mb-1">AudioMIX</h2>
+                <p className="text-blue-400 text-xs font-semibold tracking-widest uppercase mb-6">MP3 Engine • PRO</p>
+                
+                <div className="bg-[#0a0a0c] p-5 rounded-2xl border border-gray-800 mb-6 text-left shadow-inner">
+                    <p className="text-gray-500 text-[10px] uppercase tracking-widest mb-1 font-bold">Desenvolvedor & Criador</p>
+                    <p className="text-gray-200 font-extrabold text-base">Kauã Mazur dos Reis</p>
+                    
+                    <div className="w-full h-px bg-gray-800 my-4"></div>
+
+                    <p className="text-gray-500 text-[10px] uppercase tracking-widest mb-1 font-bold">Contacto / Suporte</p>
+                    <a href="mailto:kmzsuportt1@gmail.com" className="text-blue-400 font-bold text-sm hover:text-blue-300 transition-colors">kmzsuportt1@gmail.com</a>
+                </div>
+
+                <div className="text-gray-500 text-[10px] font-medium tracking-wide">
+                    <p>&copy; 2026 Kauã Mazur. Todos os direitos reservados.</p>
+                </div>
+            </div>
+          </div>
+        )}
       </main>
 
       {/* Navegação Fixa Inferior */}
-      <nav className="fixed bottom-0 w-full max-w-md bg-[#111115]/95 backdrop-blur-xl border-t border-gray-800/80 flex justify-around p-2 pb-safe-area z-30">
-        <button onClick={() => setActiveTab('studio')} className={`flex flex-col items-center gap-1.5 p-3 w-24 rounded-2xl transition-all ${activeTab === 'studio' ? 'text-blue-400 bg-blue-500/10' : 'text-gray-500'}`}>
+      <nav className="fixed bottom-0 w-full max-w-md bg-[#111115]/95 backdrop-blur-xl border-t border-gray-800/80 flex justify-between px-4 py-2 pb-safe-area z-30">
+        <button onClick={() => setActiveTab('studio')} className={`flex flex-col items-center justify-center gap-1.5 p-2 w-[22%] rounded-2xl transition-all ${activeTab === 'studio' ? 'text-blue-400 bg-blue-500/10' : 'text-gray-500'}`}>
           <Settings2 size={22} />
-          <span className="text-[10px] font-bold tracking-widest uppercase">Básico</span>
+          <span className="text-[9px] font-bold tracking-widest uppercase truncate w-full text-center">Básico</span>
         </button>
-        <button onClick={() => setActiveTab('pro')} className={`flex flex-col items-center gap-1.5 p-3 w-24 rounded-2xl transition-all ${activeTab === 'pro' ? 'text-blue-400 bg-blue-500/10' : 'text-gray-500'}`}>
+        <button onClick={() => setActiveTab('pro')} className={`flex flex-col items-center justify-center gap-1.5 p-2 w-[22%] rounded-2xl transition-all ${activeTab === 'pro' ? 'text-blue-400 bg-blue-500/10' : 'text-gray-500'}`}>
           <Sliders size={22} />
-          <span className="text-[10px] font-bold tracking-widest uppercase">Estúdio Pro</span>
+          <span className="text-[9px] font-bold tracking-widest uppercase truncate w-full text-center">Pro</span>
         </button>
-        <button onClick={() => setActiveTab('library')} className={`flex flex-col items-center gap-1.5 p-3 w-24 rounded-2xl transition-all relative ${activeTab === 'library' ? 'text-blue-400 bg-blue-500/10' : 'text-gray-500'}`}>
+        <button onClick={() => setActiveTab('library')} className={`flex flex-col items-center justify-center gap-1.5 p-2 w-[22%] rounded-2xl transition-all relative ${activeTab === 'library' ? 'text-blue-400 bg-blue-500/10' : 'text-gray-500'}`}>
           <FolderDown size={22} />
-          <span className="text-[10px] font-bold tracking-widest uppercase">Salvos</span>
-          {library.length > 0 && <span className="absolute top-2.5 right-6 w-2 h-2 bg-blue-500 rounded-full border border-[#111115]"></span>}
+          <span className="text-[9px] font-bold tracking-widest uppercase truncate w-full text-center">Salvos</span>
+          {library.length > 0 && <span className="absolute top-2 right-4 w-2 h-2 bg-blue-500 rounded-full border border-[#111115]"></span>}
+        </button>
+        <button onClick={() => setActiveTab('credits')} className={`flex flex-col items-center justify-center gap-1.5 p-2 w-[22%] rounded-2xl transition-all ${activeTab === 'credits' ? 'text-blue-400 bg-blue-500/10' : 'text-gray-500'}`}>
+          <User size={22} />
+          <span className="text-[9px] font-bold tracking-widest uppercase truncate w-full text-center">Créditos</span>
         </button>
       </nav>
       

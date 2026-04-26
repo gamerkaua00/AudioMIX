@@ -1,6 +1,6 @@
 {
-  "appId": "com.kauamazur.estudioplayback",
-  "appName": "Estúdio Playback",
+  "appId": "com.kauamazur.audiomix",
+  "appName": "AudioMIX",
   "webDir": "dist",
   "bundledWebRuntime": false
 }
