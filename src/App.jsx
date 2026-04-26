@@ -104,6 +104,15 @@ export default function App() {
   const [library, setLibrary] = useState([]);
   const [activePlaylist, setActivePlaylist] = useState('Todas');
   
+  // UI Customizada (Substitui os alerts e prompts bloqueados no Android)
+  const [toast, setToast] = useState({ show: false, msg: '', type: 'success' });
+  const [modal, setModal] = useState({ show: false, type: '', track: null, input: '' });
+
+  const showToast = (msg, type = 'success') => {
+    setToast({ show: true, msg, type });
+    setTimeout(() => setToast({ show: false, msg: '', type: 'success' }), 3500);
+  };
+  
   const [file, setFile] = useState(null);
   const [fileName, setFileName] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
@@ -175,6 +184,7 @@ export default function App() {
     const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
     audioBufferRef.current = audioBuffer;
     setDuration(audioBuffer.duration);
+    showToast("Áudio carregado com sucesso!");
   };
 
   const applyAudioRouting = (ctx, source, isOffline = false) => {
@@ -240,6 +250,10 @@ export default function App() {
       sideSum.connect(sideInvert); sideInvert.connect(outR); outR.connect(merger, 0, 1);
 
       finalOutput = merger;
+    } else if (removeVocals && audioBufferRef.current.numberOfChannels === 1 && !isOffline) {
+        // Alerta elegante substituindo window.alert
+        showToast("Áudio MONO. O atenuador requer faixas Estéreo.", "error");
+        setRemoveVocals(false);
     }
 
     if (!isOffline) {
@@ -371,7 +385,10 @@ export default function App() {
 
   const processAndSave = async () => {
     if (!audioBufferRef.current) return;
-    if (!window.lamejs) { alert("Aguarde um momento, a carregar codificador..."); return; }
+    if (!window.lamejs) { 
+        showToast("A carregar motor MP3, aguarde um instante...", "error"); 
+        return; 
+    }
     
     setIsProcessing(true);
     setRenderProgress(0);
@@ -425,92 +442,83 @@ export default function App() {
       setBass(0); setMid(0); setTreble(0); setCompressor(false);
       setLoopA(null); setLoopB(null); setCurrentTime(0); pausedAtRef.current = 0;
       
+      showToast("Música exportada e guardada com sucesso!");
       if (audioContextRef.current) audioContextRef.current.resume();
 
     } catch (error) {
       console.error(error);
-      alert("Houve um erro na renderização.");
+      showToast("Houve um erro na renderização.", "error");
     } finally {
       setIsProcessing(false);
       setRenderProgress(0);
     }
   };
 
-  // --- HACK PARA DOWNLOAD NO ANDROID WEBVIEW ---
-  const handleDownload = (track) => {
+  // --- SOLUÇÃO DE EXPORTAÇÃO E PARTILHA NATIVA UNIFICADA ---
+  const handleExport = async (track) => {
     try {
-      // Usar FileReader para converter para Base64 força o sistema Android a reconhecer e fazer o download nativo
-      const reader = new FileReader();
-      reader.readAsDataURL(track.blob);
-      reader.onloadend = () => {
-        const base64data = reader.result;
+      const file = new File([track.blob], `${track.name}.mp3`, { type: 'audio/mpeg' });
+      
+      // No Android WebView, o navigator.share abre a aba de partilha real,
+      // permitindo ao utilizador "Guardar no dispositivo" ou enviar para WhatsApp.
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ 
+          title: track.name, 
+          text: 'Música editada no AudioMIX',
+          files: [file] 
+        });
+        showToast("Ação concluída com sucesso!");
+      } else {
+        // Fallback seguro para desktop / navegadores que não suportem Share
+        const blobUrl = URL.createObjectURL(track.blob);
         const a = document.createElement('a');
         a.style.display = 'none';
-        a.href = base64data;
+        a.href = blobUrl;
         a.download = `${track.name}.mp3`;
         document.body.appendChild(a);
         a.click();
-        document.body.removeChild(a);
-        alert("Transferência iniciada! Verifique a barra de notificações do seu telemóvel.");
-      };
-    } catch (e) {
-      alert("Erro ao transferir: " + e.message);
-    }
-  };
-
-  // --- PARTILHA REALISTA PARA O TELEMÓVEL ---
-  const handleShare = async (track) => {
-    try {
-      const fileToShare = new File([track.blob], `${track.name}.mp3`, { type: 'audio/mp3' });
-      
-      if (navigator.share) {
-        if (navigator.canShare && navigator.canShare({ files: [fileToShare] })) {
-            await navigator.share({
-                title: track.name,
-                text: 'Música editada no AudioMIX',
-                files: [fileToShare]
-            });
-        } else {
-            alert("O seu dispositivo bloqueou a partilha direta. O ficheiro será transferido agora, abra a sua pasta de Downloads para partilhar.");
-            handleDownload(track);
-        }
-      } else {
-        alert("Função de partilha indisponível. A iniciar transferência...");
-        handleDownload(track);
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(blobUrl);
+        }, 1000);
+        showToast("Transferência iniciada!");
       }
     } catch (err) {
       if (err.name !== 'AbortError') {
-        alert("A partilha foi cancelada ou falhou. O ficheiro será transferido para si.");
-        handleDownload(track);
+        console.error("Erro na partilha:", err);
+        showToast("Erro ao exportar o ficheiro.", "error");
       }
     }
   };
 
-  const handleRename = async (id, oldName) => {
-    const newName = prompt("Renomear faixa:", oldName);
-    if (newName && newName.trim() !== "") {
-      const track = library.find(t => t.id === id);
-      track.name = newName.trim();
-      await saveTrackToDB(track);
-      setLibrary([...library]);
-    }
+  // --- FUNÇÕES DA BIBLIOTECA USANDO MODAIS NATIVAS (SEM ALERTS/PROMPTS) ---
+  const executeRename = async () => {
+      if(modal.input.trim() !== "") {
+          const track = library.find(t => t.id === modal.track.id);
+          track.name = modal.input.trim();
+          await saveTrackToDB(track);
+          setLibrary([...library]);
+          showToast("Nome atualizado com sucesso!");
+      }
+      setModal({ show: false, type: '', track: null, input: '' });
   };
 
-  const handleChangePlaylist = async (id) => {
-    const pName = prompt("Mover para a Playlist (ex: Ensaios):", "Nova Playlist");
-    if (pName && pName.trim() !== "") {
-      const track = library.find(t => t.id === id);
-      track.playlist = pName.trim();
-      await saveTrackToDB(track);
-      setLibrary([...library]);
-    }
+  const executePlaylist = async () => {
+      if(modal.input.trim() !== "") {
+          const track = library.find(t => t.id === modal.track.id);
+          track.playlist = modal.input.trim();
+          await saveTrackToDB(track);
+          setLibrary([...library]);
+          showToast(`Movida para a playlist "${modal.input.trim()}"!`);
+      }
+      setModal({ show: false, type: '', track: null, input: '' });
   };
 
-  const handleDelete = async (id) => {
-    if(confirm("Deseja apagar esta música para sempre?")) {
-        await deleteTrackFromDB(id);
-        setLibrary(library.filter(t => t.id !== id));
-    }
+  const executeDelete = async () => {
+      await deleteTrackFromDB(modal.track.id);
+      setLibrary(library.filter(t => t.id !== modal.track.id));
+      showToast("Música eliminada permanentemente.");
+      setModal({ show: false, type: '', track: null, input: '' });
   };
 
   const formatTime = (time) => {
@@ -526,7 +534,46 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#070709] text-gray-100 font-sans flex flex-col items-center select-none">
       
-      {/* Design de Cabeçalho Limpo e Elegante */}
+      {/* TOAST NOTIFICATION (Substitui os alertas do sistema) */}
+      {toast.show && (
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-top-5 fade-in duration-300">
+            <div className={`shadow-2xl rounded-full px-5 py-3 flex items-center gap-3 border ${toast.type === 'error' ? 'bg-red-950/95 border-red-500/50' : 'bg-blue-950/95 border-blue-500/50'}`}>
+                <Activity size={16} className={toast.type === 'error' ? 'text-red-400' : 'text-blue-400'} />
+                <span className="text-xs font-bold text-white whitespace-nowrap">{toast.msg}</span>
+            </div>
+        </div>
+      )}
+
+      {/* CUSTOM MODAL (Substitui prompts e confirms bloqueados pelo WebView) */}
+      {modal.show && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm px-5 animate-in fade-in duration-200">
+           <div className="bg-[#0f0f13] border border-white/10 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+              <h3 className="text-lg font-bold text-white mb-2">
+                  {modal.type === 'delete' ? 'Eliminar Música' : modal.type === 'rename' ? 'Renomear Música' : 'Mover para Playlist'}
+              </h3>
+              {modal.type === 'delete' ? (
+                  <p className="text-gray-400 text-sm mb-6">Tem a certeza que deseja apagar "{modal.track?.name}" permanentemente?</p>
+              ) : (
+                  <input 
+                      type="text" 
+                      value={modal.input} 
+                      onChange={(e) => setModal({...modal, input: e.target.value})}
+                      className="w-full bg-[#070709] border border-white/10 rounded-xl px-4 py-3 text-white mb-6 outline-none focus:border-blue-500 transition-colors"
+                      placeholder={modal.type === 'rename' ? "Novo nome da música..." : "Nome da playlist (ex: Ensaios)"}
+                      autoFocus
+                  />
+              )}
+              <div className="flex gap-3">
+                  <button onClick={() => setModal({ show: false, type: '', track: null, input: '' })} className="flex-1 py-3 rounded-xl bg-[#1a1a24] text-gray-300 font-bold active:scale-95 transition-all">Cancelar</button>
+                  <button onClick={modal.type === 'delete' ? executeDelete : modal.type === 'rename' ? executeRename : executePlaylist} className={`flex-1 py-3 rounded-xl font-bold active:scale-95 transition-all ${modal.type === 'delete' ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'}`}>
+                      Confirmar
+                  </button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* CABEÇALHO */}
       <header className="w-full max-w-md p-6 pt-safe-area flex justify-center items-center bg-[#0a0a0c]/80 backdrop-blur-xl sticky top-0 z-20">
         <h1 className="text-xl font-black tracking-wide text-white flex items-center gap-2">
           <Activity className="text-blue-500" size={22} /> AudioMIX
@@ -737,7 +784,7 @@ export default function App() {
                         <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">{track.details}</span>
                       </div>
                     </div>
-                    <button onClick={() => handleDelete(track.id)} className="text-gray-600 hover:text-red-400 transition-colors">
+                    <button onClick={() => setModal({ show: true, type: 'delete', track: track, input: '' })} className="text-gray-600 hover:text-red-400 transition-colors">
                       <Trash2 size={18} />
                     </button>
                   </div>
@@ -745,14 +792,14 @@ export default function App() {
                   <audio controls src={track.url} className="w-full h-10 mb-4 rounded-lg bg-[#070709]" />
                   
                   <div className="grid grid-cols-3 gap-2">
-                    <button onClick={() => handleChangePlaylist(track.id)} className="py-3 bg-[#1a1a24] active:scale-95 rounded-xl flex items-center justify-center gap-1.5 text-xs font-semibold text-gray-300 transition-all">
+                    <button onClick={() => setModal({ show: true, type: 'playlist', track: track, input: track.playlist || '' })} className="py-3 bg-[#1a1a24] active:scale-95 rounded-xl flex items-center justify-center gap-1.5 text-xs font-semibold text-gray-300 transition-all">
                       <ListMusic size={14} /> Mover
                     </button>
-                    <button onClick={() => handleDownload(track)} className="py-3 bg-[#1a1a24] active:scale-95 rounded-xl flex items-center justify-center gap-1.5 text-xs font-semibold text-gray-300 transition-all">
-                      <Download size={14} /> Baixar
+                    <button onClick={() => setModal({ show: true, type: 'rename', track: track, input: track.name })} className="py-3 bg-[#1a1a24] active:scale-95 rounded-xl flex items-center justify-center gap-1.5 text-xs font-semibold text-gray-300 transition-all">
+                      <Edit2 size={14} /> Renomear
                     </button>
-                    <button onClick={() => handleShare(track)} className="py-3 bg-blue-600 active:bg-blue-500 text-white active:scale-95 rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold transition-all">
-                      <Share2 size={14} /> Enviar
+                    <button onClick={() => handleExport(track)} className="py-3 bg-blue-600 active:bg-blue-500 text-white active:scale-95 rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold transition-all shadow-[0_4px_15px_rgba(37,99,235,0.3)]">
+                      <Share2 size={14} /> Partilhar
                     </button>
                   </div>
                 </div>
