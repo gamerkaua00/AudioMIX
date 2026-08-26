@@ -49,7 +49,15 @@ jobs:
 
     - name: Compilar o APK
       working-directory: ./android
-      run: ./gradlew assembleDebug
+      run: |
+        set -o pipefail
+        ./gradlew assembleDebug --stacktrace 2>&1 | tee /tmp/gradle.log
+        RESULT=$?
+        if [ $RESULT -ne 0 ]; then
+          SNIPPET=$(grep -iE "error|FAILED|exception|undefined reference|fatal" /tmp/gradle.log | tail -60 | tr '\n' '|' | cut -c1-3500)
+          echo "::error::GRADLE_FAIL: $SNIPPET"
+          exit 1
+        fi
 
     - name: Subir APK como artifact (branches de teste / PRs)
       if: github.ref != 'refs/heads/main'
