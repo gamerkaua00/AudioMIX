@@ -1,0 +1,19 @@
+{
+  "name": "capacitor-soundtouch-pitch",
+  "version": "1.0.0",
+  "description": "Pitch shift nativo (SoundTouch, LGPL 2.1) com tempo preservado para o AudioMIX",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "files": [
+    "src/",
+    "android/"
+  ],
+  "capacitor": {
+    "android": {
+      "src": "android"
+    }
+  },
+  "peerDependencies": {
+    "@capacitor/core": "^6.0.0"
+  }
+}

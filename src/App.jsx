@@ -4,6 +4,70 @@ import {
   MicOff, Settings2, FolderDown, Activity, Check,
   AlertCircle, Sliders, Scissors, Plus, ListMusic, X, User
 } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import SoundTouchPitch from 'capacitor-soundtouch-pitch';
+
+// ==========================================
+// 0. PONTE PCM <-> MOTOR NATIVO SOUNDTOUCH
+// ==========================================
+// Converte um AudioBuffer (canais separados, float [-1,1]) para PCM float32
+// INTERCALADO em base64, chama o plugin nativo (Android, SoundTouch/LGPL)
+// para aplicar o pitch-shift preservando a duração, e devolve um novo
+// AudioBuffer com o resultado.
+async function applyNativePitchShift(audioCtx, buffer, semitones) {
+  const channels = buffer.numberOfChannels;
+  const frames = buffer.length;
+  const sampleRate = buffer.sampleRate;
+
+  // Intercala os canais: [L0,R0,L1,R1,...]
+  const interleaved = new Float32Array(frames * channels);
+  const channelData = [];
+  for (let c = 0; c < channels; c++) channelData.push(buffer.getChannelData(c));
+  for (let i = 0; i < frames; i++) {
+    for (let c = 0; c < channels; c++) {
+      interleaved[i * channels + c] = channelData[c][i];
+    }
+  }
+
+  const pcmBase64 = float32ToBase64(interleaved);
+
+  const result = await SoundTouchPitch.process({
+    pcm: pcmBase64,
+    sampleRate,
+    channels,
+    semitones,
+  });
+
+  const outSamples = base64ToFloat32(result.pcm);
+  const outFrames = Math.floor(outSamples.length / channels);
+
+  const outBuffer = audioCtx.createBuffer(channels, outFrames, sampleRate);
+  for (let c = 0; c < channels; c++) {
+    const out = outBuffer.getChannelData(c);
+    for (let i = 0; i < outFrames; i++) {
+      out[i] = outSamples[i * channels + c];
+    }
+  }
+  return outBuffer;
+}
+
+// Codifica em base64 por blocos, para não estourar a pilha em áudios longos.
+function float32ToBase64(float32Array) {
+  const bytes = new Uint8Array(float32Array.buffer, float32Array.byteOffset, float32Array.byteLength);
+  const CHUNK = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
+function base64ToFloat32(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Float32Array(bytes.buffer);
+}
 
 // ==========================================
 // 1. BASE DE DADOS LOCAL (IndexedDB)
@@ -188,8 +252,17 @@ export default function App() {
   };
 
   const applyAudioRouting = (ctx, source, isOffline = false) => {
-    const playbackRate = Math.pow(2, pitch / 12);
-    source.playbackRate.value = playbackRate;
+    // IMPORTANTE: no render offline (exportação), NÃO alteramos playbackRate.
+    // O pitch é aplicado depois, no domínio PCM, pelo motor nativo SoundTouch
+    // (tempo preservado). Mudar o playbackRate aqui mudaria a duração da
+    // faixa exportada, o que contraria a especificação do produto.
+    // Na pré-escuta ao vivo (isOffline === false) mantemos o método antigo
+    // (rápido, mas aproximado: pitch e tempo mudam juntos) até implementarmos
+    // pré-escuta com o motor nativo também.
+    if (!isOffline) {
+      const playbackRate = Math.pow(2, pitch / 12);
+      source.playbackRate.value = playbackRate;
+    }
 
     const bassFilter = ctx.createBiquadFilter();
     bassFilter.type = 'lowshelf';
@@ -399,12 +472,12 @@ export default function App() {
 
     try {
       const originalBuffer = audioBufferRef.current;
-      const playbackRate = Math.pow(2, pitch / 12);
-      const newDuration = originalBuffer.duration / playbackRate;
-      
+
+      // 1) Render offline SÓ dos efeitos (EQ, compressor, remoção de vocais),
+      //    na duração ORIGINAL — sem tocar em playbackRate.
       const offlineCtx = new window.OfflineAudioContext(
-        originalBuffer.numberOfChannels, 
-        newDuration * originalBuffer.sampleRate, 
+        originalBuffer.numberOfChannels,
+        originalBuffer.length,
         originalBuffer.sampleRate
       );
 
@@ -415,8 +488,26 @@ export default function App() {
       finalNode.connect(offlineCtx.destination);
       source.start(0);
 
-      setRenderProgress(5); 
-      const renderedBuffer = await offlineCtx.startRendering();
+      setRenderProgress(5);
+      let renderedBuffer = await offlineCtx.startRendering();
+
+      // 2) Aplica o pitch-shift de verdade (tempo preservado) via motor
+      //    nativo SoundTouch, se estivermos rodando como app Android.
+      //    Se pitch === 0, não há nada a fazer.
+      if (pitch !== 0) {
+        if (Capacitor.isNativePlatform()) {
+          setRenderProgress(20);
+          renderedBuffer = await applyNativePitchShift(offlineCtx, renderedBuffer, pitch);
+        } else {
+          // Ambiente de desenvolvimento web (sem plugin nativo disponível):
+          // aviso claro em vez de silenciosamente exportar sem pitch.
+          console.warn(
+            'SoundTouchPitch só está disponível no APK Android. ' +
+            'No navegador, a exportação sai sem alteração de tom.'
+          );
+          showToast("Aviso: pitch shift real só funciona no APK (não no navegador).", "error");
+        }
+      }
       
       const mp3Blob = await encodeMP3Async(renderedBuffer, (percent) => {
         setRenderProgress(Math.max(5, percent)); 

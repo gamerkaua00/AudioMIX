@@ -3,6 +3,9 @@ name: Gerar APK e Release Android
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -48,7 +51,15 @@ jobs:
       working-directory: ./android
       run: ./gradlew assembleDebug
 
+    - name: Subir APK como artifact (branches de teste / PRs)
+      if: github.ref != 'refs/heads/main'
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-debug-apk
+        path: android/app/build/outputs/apk/debug/app-debug.apk
+
     - name: Publicar APK na aba Releases
+      if: github.ref == 'refs/heads/main'
       uses: ncipollo/release-action@v1
       with:
         artifacts: "android/app/build/outputs/apk/debug/app-debug.apk"
