@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   Upload, Play, Pause, Download, Share2, Edit2, Trash2, 
   MicOff, Settings2, FolderDown, Activity, Check,
-  AlertCircle, Sliders, Scissors, Plus, ListMusic, X, User
+  AlertCircle, Sliders, Scissors, Plus, ListMusic, X, User, Loader2
 } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import SoundTouchPitch from 'capacitor-soundtouch-pitch';
@@ -14,7 +14,7 @@ import SoundTouchPitch from 'capacitor-soundtouch-pitch';
 // INTERCALADO em base64, chama o plugin nativo (Android, SoundTouch/LGPL)
 // para aplicar o pitch-shift preservando a duração, e devolve um novo
 // AudioBuffer com o resultado.
-async function applyNativePitchShift(audioCtx, buffer, semitones) {
+async function applyNativePitchShift(audioCtx, buffer, semitones, onProgress) {
   const channels = buffer.numberOfChannels;
   const frames = buffer.length;
   const sampleRate = buffer.sampleRate;
@@ -29,18 +29,51 @@ async function applyNativePitchShift(audioCtx, buffer, semitones) {
     }
   }
 
-  const pcmBase64 = float32ToBase64(interleaved);
+  // Processa em pedaços de ~5s: um áudio de vários minutos em PCM float32
+  // pode passar de 50-100MB, e mandar isso tudo de uma vez só pela ponte
+  // JS<->nativo do Capacitor é pesado e pode falhar em aparelhos com menos
+  // memória. Em pedaços pequenos, cada chamada fica na casa de poucos MB.
+  const CHUNK_SECONDS = 5;
+  const chunkFrames = Math.max(1, Math.floor(sampleRate * CHUNK_SECONDS));
+  const totalChunks = Math.max(1, Math.ceil(frames / chunkFrames));
 
-  const result = await SoundTouchPitch.process({
-    pcm: pcmBase64,
-    sampleRate,
-    channels,
-    semitones,
-  });
+  const { sessionId } = await SoundTouchPitch.createSession({ sampleRate, channels, semitones });
 
-  const outSamples = base64ToFloat32(result.pcm);
+  const outputPieces = [];
+  try {
+    for (let i = 0; i < totalChunks; i++) {
+      const startFrame = i * chunkFrames;
+      const endFrame = Math.min(startFrame + chunkFrames, frames);
+      const chunk = interleaved.subarray(startFrame * channels, endFrame * channels);
+
+      const { pcm } = await SoundTouchPitch.processChunk({
+        sessionId,
+        pcm: float32ToBase64(chunk),
+      });
+      if (pcm) outputPieces.push(base64ToFloat32(pcm));
+
+      if (onProgress) onProgress(Math.round(((i + 1) / totalChunks) * 100));
+    }
+
+    const { pcm: finalPcm } = await SoundTouchPitch.finishSession({ sessionId });
+    if (finalPcm) outputPieces.push(base64ToFloat32(finalPcm));
+  } catch (err) {
+    // Garante que a sessão nativa não fique presa em memória mesmo se algo falhar no meio.
+    try { await SoundTouchPitch.finishSession({ sessionId }); } catch (_) { /* já pode ter sido limpa */ }
+    throw err;
+  }
+
+  let totalOutSamples = 0;
+  for (const piece of outputPieces) totalOutSamples += piece.length;
+
+  const outSamples = new Float32Array(totalOutSamples);
+  let offset = 0;
+  for (const piece of outputPieces) {
+    outSamples.set(piece, offset);
+    offset += piece.length;
+  }
+
   const outFrames = Math.floor(outSamples.length / channels);
-
   const outBuffer = audioCtx.createBuffer(channels, outFrames, sampleRate);
   for (let c = 0; c < channels; c++) {
     const out = outBuffer.getChannelData(c);
@@ -206,6 +239,11 @@ export default function App() {
   
   const startTimeRef = useRef(0);
   const pausedAtRef = useRef(0);
+  // Cache do buffer de pré-escuta já com o pitch aplicado pelo motor nativo,
+  // pra não reprocessar a música inteira toda vez que o usuário aperta Play
+  // com o mesmo tom selecionado.
+  const pitchedPreviewRef = useRef({ pitch: null, buffer: null });
+  const [isPreparingPreview, setIsPreparingPreview] = useState(false);
 
   useEffect(() => {
     const script = document.createElement('script');
@@ -242,6 +280,7 @@ export default function App() {
     setBass(0); setMid(0); setTreble(0); setCompressor(false);
     setLoopA(null); setLoopB(null); setCurrentTime(0);
     pausedAtRef.current = 0;
+    pitchedPreviewRef.current = { pitch: null, buffer: null };
 
     initAudioContext();
     const arrayBuffer = await uploadedFile.arrayBuffer();
@@ -252,18 +291,11 @@ export default function App() {
   };
 
   const applyAudioRouting = (ctx, source, isOffline = false) => {
-    // IMPORTANTE: no render offline (exportação), NÃO alteramos playbackRate.
-    // O pitch é aplicado depois, no domínio PCM, pelo motor nativo SoundTouch
-    // (tempo preservado). Mudar o playbackRate aqui mudaria a duração da
-    // faixa exportada, o que contraria a especificação do produto.
-    // Na pré-escuta ao vivo (isOffline === false) mantemos o método antigo
-    // (rápido, mas aproximado: pitch e tempo mudam juntos) até implementarmos
-    // pré-escuta com o motor nativo também.
-    if (!isOffline) {
-      const playbackRate = Math.pow(2, pitch / 12);
-      source.playbackRate.value = playbackRate;
-    }
-
+    // O pitch NÃO é mais simulado via playbackRate em lugar nenhum (nem na
+    // exportação, nem na pré-escuta): o buffer que chega aqui já foi
+    // processado pelo motor nativo SoundTouch com o tom certo e a duração
+    // original preservada (ver getPlaybackBuffer/applyNativePitchShift).
+    // Por isso a taxa de reprodução é sempre a real (1.0).
     const bassFilter = ctx.createBiquadFilter();
     bassFilter.type = 'lowshelf';
     bassFilter.frequency.value = 250;
@@ -375,8 +407,7 @@ export default function App() {
     if (!audioContextRef.current || !isPlaying) return;
     
     const ctx = audioContextRef.current;
-    const playbackRate = Math.pow(2, pitch / 12);
-    let current = ((ctx.currentTime - startTimeRef.current) * playbackRate) + pausedAtRef.current;
+    let current = (ctx.currentTime - startTimeRef.current) + pausedAtRef.current;
     
     if (loopB !== null && current >= loopB) {
       seekTo(loopA || 0);
@@ -394,10 +425,46 @@ export default function App() {
     if(isPlaying) requestAnimationFrame(updateSeekerAndLoop);
   };
 
-  const playPreview = () => {
-    if (!audioBufferRef.current) return;
+  // Retorna o buffer certo pra tocar: original (pitch 0), ou processado
+  // pelo motor nativo (com cache pra não reprocessar a música toda de novo
+  // se o usuário já ouviu esse mesmo tom antes).
+  const getPlaybackBuffer = async (ctx) => {
+    const original = audioBufferRef.current;
+    if (pitch === 0) return original;
+
+    if (!Capacitor.isNativePlatform()) {
+      // Sem o plugin nativo (navegador/dev): fallback aproximado, só pra
+      // conseguir testar a UI. Deixa isso bem claro no console.
+      console.warn('Pré-escuta com pitch real só funciona no APK Android (motor nativo).');
+      return original;
+    }
+
+    if (pitchedPreviewRef.current.pitch === pitch && pitchedPreviewRef.current.buffer) {
+      return pitchedPreviewRef.current.buffer;
+    }
+
+    setIsPreparingPreview(true);
+    try {
+      const shifted = await applyNativePitchShift(ctx, original, pitch);
+      pitchedPreviewRef.current = { pitch, buffer: shifted };
+      return shifted;
+    } catch (err) {
+      console.error('Erro ao preparar pré-escuta com pitch:', err);
+      showToast(`Não foi possível aplicar o tom na pré-escuta: ${err.message || err}`, "error");
+      return original; // toca sem pitch em vez de travar por completo
+    } finally {
+      setIsPreparingPreview(false);
+    }
+  };
+
+  const playPreview = async () => {
+    if (!audioBufferRef.current || isPreparingPreview) return;
     initAudioContext();
     const ctx = audioContextRef.current;
+
+    const bufferToPlay = await getPlaybackBuffer(ctx);
+    // Se o usuário trocou o tom ou parou enquanto processava, não inicia sozinho.
+    if (!audioBufferRef.current) return;
 
     if (sourceNodeRef.current) {
         sourceNodeRef.current.onended = null;
@@ -405,7 +472,7 @@ export default function App() {
     }
 
     const source = ctx.createBufferSource();
-    source.buffer = audioBufferRef.current;
+    source.buffer = bufferToPlay;
     
     const finalNode = applyAudioRouting(ctx, source);
     finalNode.connect(ctx.destination);
@@ -427,8 +494,7 @@ export default function App() {
       if (isPlaying) {
         sourceNodeRef.current.stop();
         const ctx = audioContextRef.current;
-        const playbackRate = Math.pow(2, pitch / 12);
-        pausedAtRef.current = pausedAtRef.current + ((ctx.currentTime - startTimeRef.current) * playbackRate);
+        pausedAtRef.current = pausedAtRef.current + (ctx.currentTime - startTimeRef.current);
       }
       setIsPlaying(false);
     }
@@ -497,7 +563,9 @@ export default function App() {
       if (pitch !== 0) {
         if (Capacitor.isNativePlatform()) {
           setRenderProgress(20);
-          renderedBuffer = await applyNativePitchShift(offlineCtx, renderedBuffer, pitch);
+          renderedBuffer = await applyNativePitchShift(offlineCtx, renderedBuffer, pitch, (pct) => {
+            setRenderProgress(20 + Math.round(pct * 0.7)); // 20% -> 90%
+          });
         } else {
           // Ambiente de desenvolvimento web (sem plugin nativo disponível):
           // aviso claro em vez de silenciosamente exportar sem pitch.
@@ -532,13 +600,14 @@ export default function App() {
       setPitch(0); setRemoveVocals(false); 
       setBass(0); setMid(0); setTreble(0); setCompressor(false);
       setLoopA(null); setLoopB(null); setCurrentTime(0); pausedAtRef.current = 0;
-      
+      pitchedPreviewRef.current = { pitch: null, buffer: null };
+
       showToast("Música exportada e guardada com sucesso!");
       if (audioContextRef.current) audioContextRef.current.resume();
 
     } catch (error) {
       console.error(error);
-      showToast("Houve um erro na renderização.", "error");
+      showToast(`Erro na renderização: ${error.message || error}`, "error");
     } finally {
       setIsProcessing(false);
       setRenderProgress(0);
@@ -729,12 +798,21 @@ export default function App() {
                 <div className="flex justify-center mb-8 relative">
                   <div className="absolute inset-0 bg-blue-500/10 blur-2xl rounded-full scale-125"></div>
                   <button 
-                    onClick={togglePlay} disabled={isProcessing}
-                    className="relative w-20 h-20 flex items-center justify-center bg-blue-600 hover:bg-blue-500 active:scale-90 text-white rounded-full shadow-[0_10px_30px_rgba(59,130,246,0.3)] transition-all"
+                    onClick={togglePlay} disabled={isProcessing || isPreparingPreview}
+                    className="relative w-20 h-20 flex items-center justify-center bg-blue-600 hover:bg-blue-500 active:scale-90 text-white rounded-full shadow-[0_10px_30px_rgba(59,130,246,0.3)] transition-all disabled:opacity-70"
                   >
-                    {isPlaying ? <Pause size={28} fill="currentColor" /> : <Play size={28} fill="currentColor" className="ml-1" />}
+                    {isPreparingPreview ? (
+                      <Loader2 size={28} className="animate-spin" />
+                    ) : isPlaying ? (
+                      <Pause size={28} fill="currentColor" />
+                    ) : (
+                      <Play size={28} fill="currentColor" className="ml-1" />
+                    )}
                   </button>
                 </div>
+                {isPreparingPreview && (
+                  <p className="text-center text-gray-500 text-xs -mt-6 mb-6">Aplicando tom (motor nativo)...</p>
+                )}
 
                 <div className="bg-[#070709] p-4 rounded-2xl mb-4 border border-white/5">
                   <div className="flex items-center justify-between">
