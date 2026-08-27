@@ -53,9 +53,7 @@ jobs:
       working-directory: ./android
       run: |
         set -o pipefail
-        ./gradlew assembleDebug --stacktrace 2>&1 | tee /tmp/gradle.log
-        RESULT=$?
-        if [ $RESULT -ne 0 ]; then
+        if ! ./gradlew assembleDebug --stacktrace 2>&1 | tee /tmp/gradle.log; then
           tail -c 55000 /tmp/gradle.log > /tmp/gradle_tail.txt
           python3 ${{ github.workspace }}/.github/scripts/post_gradle_log.py
           exit 1
