@@ -4,6 +4,7 @@ import {
   MicOff, Settings2, FolderDown, Activity, Check,
   AlertCircle, Sliders, Scissors, Plus, ListMusic, X, User
 } from 'lucide-react';
+import * as lamejs from '@breezystack/lamejs';
 
 // ==========================================
 // 1. BASE DE DADOS LOCAL (IndexedDB)
@@ -54,11 +55,9 @@ const deleteTrackFromDB = async (id) => {
 // 2. CODIFICADOR MP3 ASSÍNCRONO
 // ==========================================
 async function encodeMP3Async(buffer, onProgress) {
-  if (!window.lamejs) throw new Error("Aguarde, codificador MP3 a carregar...");
-  
   const channels = buffer.numberOfChannels;
   const sampleRate = buffer.sampleRate;
-  const mp3encoder = new window.lamejs.Mp3Encoder(channels, sampleRate, 128); 
+  const mp3encoder = new lamejs.Mp3Encoder(channels, sampleRate, 128); 
   const mp3Data = [];
 
   const left = buffer.getChannelData(0);
@@ -144,10 +143,6 @@ export default function App() {
   const pausedAtRef = useRef(0);
 
   useEffect(() => {
-    const script = document.createElement('script');
-    script.src = "https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.1/lame.min.js";
-    document.body.appendChild(script);
-
     getLibraryFromDB().then(tracks => {
       const tracksComUrl = tracks.map(t => ({
         ...t,
@@ -170,8 +165,6 @@ export default function App() {
     const uploadedFile = e.target.files[0];
     if (!uploadedFile) return;
 
-    setFile(uploadedFile);
-    setFileName(uploadedFile.name.replace(/\.[^/.]+$/, ""));
     stopPreview(); 
     
     setPitch(0); setRemoveVocals(false); 
@@ -179,12 +172,24 @@ export default function App() {
     setLoopA(null); setLoopB(null); setCurrentTime(0);
     pausedAtRef.current = 0;
 
-    initAudioContext();
-    const arrayBuffer = await uploadedFile.arrayBuffer();
-    const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
-    audioBufferRef.current = audioBuffer;
-    setDuration(audioBuffer.duration);
-    showToast("Áudio carregado com sucesso!");
+    try {
+      initAudioContext();
+      const arrayBuffer = await uploadedFile.arrayBuffer();
+      const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
+      audioBufferRef.current = audioBuffer;
+      setFile(uploadedFile);
+      setFileName(uploadedFile.name.replace(/\.[^/.]+$/, ""));
+      setDuration(audioBuffer.duration);
+      showToast("Áudio carregado com sucesso!");
+    } catch (err) {
+      console.error("Erro ao carregar áudio:", err);
+      setFile(null);
+      audioBufferRef.current = null;
+      showToast("Não foi possível abrir este ficheiro. Tente outro formato de áudio.", "error");
+    } finally {
+      // Permite selecionar o mesmo ficheiro de novo, se necessário
+      e.target.value = '';
+    }
   };
 
   const applyAudioRouting = (ctx, source, isOffline = false) => {
@@ -385,10 +390,6 @@ export default function App() {
 
   const processAndSave = async () => {
     if (!audioBufferRef.current) return;
-    if (!window.lamejs) { 
-        showToast("A carregar motor MP3, aguarde um instante...", "error"); 
-        return; 
-    }
     
     setIsProcessing(true);
     setRenderProgress(0);
@@ -824,6 +825,12 @@ export default function App() {
 
                     <p className="text-gray-600 text-[10px] uppercase tracking-widest font-bold mb-1">Contacto</p>
                     <a href="mailto:kmzsuportt1@gmail.com" className="text-blue-400 font-bold text-sm">kmzsuportt1@gmail.com</a>
+                </div>
+
+                <div className="bg-[#0f0f13] p-6 rounded-3xl border border-white/5 text-left shadow-lg mt-4">
+                    <p className="text-gray-600 text-[10px] uppercase tracking-widest font-bold mb-3">Bibliotecas de código aberto</p>
+                    <p className="text-gray-300 text-xs font-semibold">lamejs (codificador MP3)</p>
+                    <p className="text-gray-600 text-[11px] mb-1">Licença LGPL-3.0 · zhuker/lamejs</p>
                 </div>
             </div>
           </div>
