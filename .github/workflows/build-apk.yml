@@ -9,6 +9,8 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
+  issues: write
 
 jobs:
   build-android:
@@ -60,7 +62,7 @@ jobs:
         fi
       env:
         GH_REPO: ${{ github.repository }}
-        GH_SHA: ${{ github.sha }}
+        GH_BRANCH: ${{ github.head_ref || github.ref_name }}
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Subir APK como artifact (branches de teste / PRs)
