@@ -1,4 +1,6 @@
-node_modules/
-/android/
-dist/
 *.log
+*.pyc
+/android/
+__pycache__/
+dist/
+node_modules/
