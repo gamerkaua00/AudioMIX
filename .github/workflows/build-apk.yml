@@ -40,6 +40,20 @@ jobs:
     - name: Montar Projeto Android (Capacitor)
       run: npx cap add android
 
+    - name: Registrar plugins nativos locais no MainActivity
+      id: register_plugins
+      run: python3 .github/scripts/register_native_plugins.py android/app/src/main/java/com/kauamazur/audiomix/MainActivity.java
+
+    - name: Diagnóstico se o registro falhar
+      if: failure() && steps.register_plugins.outcome == 'failure'
+      run: |
+        cat android/app/src/main/java/com/kauamazur/audiomix/MainActivity.java > /tmp/gradle_tail.txt || echo "Arquivo não encontrado" > /tmp/gradle_tail.txt
+        python3 .github/scripts/post_gradle_log.py
+      env:
+        GH_REPO: ${{ github.repository }}
+        GH_BRANCH: ${{ github.head_ref || github.ref_name }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Instalar Ferramenta de Ícones
       run: npm install @capacitor/assets -D
 
