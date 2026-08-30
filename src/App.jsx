@@ -236,6 +236,16 @@ export default function App() {
   const [file, setFile] = useState(null);
   const [fileName, setFileName] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
+  // Ref espelhando isPlaying: usado DENTRO dos loops de requestAnimationFrame
+  // (updateSeekerAndLoop, drawVisualizer). O estado do React (isPlaying) fica
+  // "congelado" no valor de quando a função foi criada por causa de closures
+  // - o rAF chama a MESMA instância da função sempre, então ela nunca vê a
+  // atualização do estado. A ref sempre reflete o valor real e atual.
+  const isPlayingRef = useRef(false);
+  const setPlayingState = (value) => {
+    isPlayingRef.current = value;
+    setIsPlaying(value);
+  };
   
   const [pitch, setPitch] = useState(0); 
   const [removeVocals, setRemoveVocals] = useState(false);
@@ -452,7 +462,7 @@ export default function App() {
   };
 
   const drawVisualizer = () => {
-    if (!canvasRef.current || !analyserRef.current || !isPlaying) return;
+    if (!canvasRef.current || !analyserRef.current || !isPlayingRef.current) return;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     const width = canvas.width;
@@ -484,7 +494,7 @@ export default function App() {
   };
 
   const updateSeekerAndLoop = () => {
-    if (!audioContextRef.current || !isPlaying) return;
+    if (!audioContextRef.current || !isPlayingRef.current) return;
     
     const ctx = audioContextRef.current;
     let current = (ctx.currentTime - startTimeRef.current) + pausedAtRef.current;
@@ -498,14 +508,14 @@ export default function App() {
     }
 
     if (current >= duration) {
-      setIsPlaying(false);
+      setPlayingState(false);
       setCurrentTime(duration);
       pausedAtRef.current = 0;
       return;
     }
 
     setCurrentTime(current);
-    if(isPlaying) requestAnimationFrame(updateSeekerAndLoop);
+    if(isPlayingRef.current) requestAnimationFrame(updateSeekerAndLoop);
   };
 
   // Retorna o buffer certo pra tocar: original (pitch 0), ou processado
@@ -568,7 +578,7 @@ export default function App() {
     startTimeRef.current = ctx.currentTime;
     
     sourceNodeRef.current = source;
-    setIsPlaying(true);
+    setPlayingState(true);
     
     if(animationRef.current) cancelAnimationFrame(animationRef.current);
     drawVisualizer();
@@ -583,7 +593,7 @@ export default function App() {
         const ctx = audioContextRef.current;
         pausedAtRef.current = pausedAtRef.current + (ctx.currentTime - startTimeRef.current);
       }
-      setIsPlaying(false);
+      setPlayingState(false);
     }
     if(animationRef.current) cancelAnimationFrame(animationRef.current);
     drawStaticWaveform();
@@ -616,7 +626,7 @@ export default function App() {
     setIsProcessing(true);
     setRenderProgress(0);
     stopPreview(); 
-    setIsPlaying(false); 
+    setPlayingState(false); 
     
     if (audioContextRef.current) audioContextRef.current.suspend();
 
