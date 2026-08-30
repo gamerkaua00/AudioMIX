@@ -944,7 +944,14 @@ export default function App() {
                       <div className="w-11 h-6 bg-[#241E17] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-copper-500"></div>
                     </label>
                   </div>
+                  <p className="text-ivory-faint text-[10px] leading-relaxed mt-3 pt-3 border-t border-white/5">
+                    Técnica de cancelamento de canal central (não é separação por IA).
+                    Funciona bem em muitas gravações comerciais, mas o resultado varia
+                    conforme a mixagem original — pode deixar resíduo de voz ou
+                    atenuar levemente instrumentos centralizados (baixo, bumbo).
+                  </p>
                 </div>
+
 
                 <div className="bg-[#0F0B08] p-4 rounded-2xl border border-white/5 mb-6">
                   <div className="flex items-baseline justify-between mb-3">
