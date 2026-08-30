@@ -3,12 +3,40 @@ name: Gerar APK e Release Android
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: {}
 
 permissions:
   contents: write
+  pull-requests: write
+  issues: write
 
 jobs:
+  verify-audio-engine:
+    name: Verificar motor de pitch shift (teste objetivo)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar o código do repositório
+        uses: actions/checkout@v4
+
+      - name: Compilar teste com o MESMO código-fonte do app
+        run: |
+          SRC=capacitor-soundtouch/android/src/main/cpp/soundtouch
+          g++ -std=c++14 -O2 -DANDROID -DSOUNDTOUCH_FLOAT_SAMPLES=1 -DSOUNDTOUCH_DISABLE_X86_OPTIMIZATIONS=1 \
+            -I "$SRC" \
+            tools/verify-pitch/verify_pitch.cpp \
+            "$SRC"/SoundTouch.cpp "$SRC"/TDStretch.cpp "$SRC"/RateTransposer.cpp \
+            "$SRC"/AAFilter.cpp "$SRC"/FIRFilter.cpp "$SRC"/FIFOSampleBuffer.cpp \
+            "$SRC"/InterpolateCubic.cpp "$SRC"/InterpolateLinear.cpp "$SRC"/InterpolateShannon.cpp \
+            "$SRC"/cpu_detect_x86.cpp \
+            -o /tmp/verify_pitch
+
+      - name: Rodar teste (gera tom, mede frequência de saída, compara com o esperado)
+        run: /tmp/verify_pitch
+
   build-android:
+    needs: verify-audio-engine
     runs-on: ubuntu-latest
 
     steps:
@@ -35,6 +63,20 @@ jobs:
     - name: Montar Projeto Android (Capacitor)
       run: npx cap add android
 
+    - name: Registrar plugins nativos locais no MainActivity
+      id: register_plugins
+      run: python3 .github/scripts/register_native_plugins.py android/app/src/main/java/com/kauamazur/audiomix/MainActivity.java
+
+    - name: Diagnóstico se o registro falhar
+      if: failure() && steps.register_plugins.outcome == 'failure'
+      run: |
+        cat android/app/src/main/java/com/kauamazur/audiomix/MainActivity.java > /tmp/gradle_tail.txt || echo "Arquivo não encontrado" > /tmp/gradle_tail.txt
+        python3 .github/scripts/post_gradle_log.py
+      env:
+        GH_REPO: ${{ github.repository }}
+        GH_BRANCH: ${{ github.head_ref || github.ref_name }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Instalar Ferramenta de Ícones
       run: npm install @capacitor/assets -D
 
@@ -46,9 +88,27 @@ jobs:
 
     - name: Compilar o APK
       working-directory: ./android
-      run: ./gradlew assembleDebug
+      run: |
+        set -o pipefail
+        if ! ./gradlew assembleDebug --stacktrace 2>&1 | tee /tmp/gradle.log; then
+          tail -c 55000 /tmp/gradle.log > /tmp/gradle_tail.txt
+          python3 ${{ github.workspace }}/.github/scripts/post_gradle_log.py
+          exit 1
+        fi
+      env:
+        GH_REPO: ${{ github.repository }}
+        GH_BRANCH: ${{ github.head_ref || github.ref_name }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Subir APK como artifact (branches de teste / PRs)
+      if: github.ref != 'refs/heads/main'
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-debug-apk
+        path: android/app/build/outputs/apk/debug/app-debug.apk
 
     - name: Publicar APK na aba Releases
+      if: github.ref == 'refs/heads/main'
       uses: ncipollo/release-action@v1
       with:
         artifacts: "android/app/build/outputs/apk/debug/app-debug.apk"
