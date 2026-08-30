@@ -4,8 +4,8 @@
 
 /* Estilos nativos para comportamento de App no telemóvel */
 body {
-  background-color: #0a0a0c;
-  color: #f3f4f6;
+  background-color: #14100D;
+  color: #EDE6D6;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior-y: none;
 }
@@ -16,4 +16,9 @@ body {
 /* Scrollbar invisível/elegante */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #374151; border-radius: 10px; }
+::-webkit-scrollbar-thumb { background: #2E271D; border-radius: 10px; }
+
+/* Números tabulares para os relógios/valores numéricos não "dançarem" */
+.font-mono {
+  font-variant-numeric: tabular-nums;
+}

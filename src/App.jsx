@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { version as APP_VERSION } from '../package.json';
 import { 
   Upload, Play, Pause, Download, Share2, Edit2, Trash2, 
-  MicOff, Settings2, FolderDown, Activity, Check,
+  MicOff, Settings2, FolderDown, Activity, Check, Piano,
   AlertCircle, Sliders, Scissors, Plus, ListMusic, X, User, Loader2
 } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
@@ -434,9 +434,9 @@ export default function App() {
     ctx.clearRect(0, 0, width, height);
 
     const gradient = ctx.createLinearGradient(0, 0, 0, height);
-    gradient.addColorStop(0, '#38bdf8');
-    gradient.addColorStop(0.5, '#3b82f6');
-    gradient.addColorStop(1, '#818cf8');
+    gradient.addColorStop(0, '#E3A579');
+    gradient.addColorStop(0.5, '#C1652E');
+    gradient.addColorStop(1, '#8A5030');
     ctx.fillStyle = gradient;
 
     for (let i = 0; i < numBars; i++) {
@@ -469,9 +469,9 @@ export default function App() {
     let x = 0;
 
     const gradient = ctx.createLinearGradient(0, 0, 0, height);
-    gradient.addColorStop(0, '#38bdf8'); 
-    gradient.addColorStop(0.5, '#3b82f6'); 
-    gradient.addColorStop(1, '#818cf8'); 
+    gradient.addColorStop(0, '#E3A579'); 
+    gradient.addColorStop(0.5, '#C1652E'); 
+    gradient.addColorStop(1, '#8A5030'); 
 
     for(let i = 0; i < bufferLength; i++) {
       const barHeight = (dataArray[i] / 255) * (height / 2);
@@ -801,13 +801,13 @@ export default function App() {
   const bibliotecaFiltrada = activePlaylist === 'Todas' ? library : library.filter(t => t.playlist === activePlaylist);
 
   return (
-    <div className="min-h-screen bg-[#070709] text-gray-100 font-sans flex flex-col items-center select-none">
+    <div className="min-h-screen bg-[#0F0B08] text-ivory font-sans flex flex-col items-center select-none">
       
       {/* TOAST NOTIFICATION (Substitui os alertas do sistema) */}
       {toast.show && (
         <div className="fixed top-14 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-top-5 fade-in duration-300">
-            <div className={`shadow-2xl rounded-full px-5 py-3 flex items-center gap-3 border ${toast.type === 'error' ? 'bg-red-950/95 border-red-500/50' : 'bg-blue-950/95 border-blue-500/50'}`}>
-                <Activity size={16} className={toast.type === 'error' ? 'text-red-400' : 'text-blue-400'} />
+            <div className={`shadow-2xl rounded-full px-5 py-3 flex items-center gap-3 border ${toast.type === 'error' ? 'bg-red-950/95 border-red-500/50' : 'bg-copper-950/95 border-copper-500/50'}`}>
+                <Activity size={16} className={toast.type === 'error' ? 'text-red-400' : 'text-copper-400'} />
                 <span className="text-xs font-bold text-white whitespace-nowrap">{toast.msg}</span>
             </div>
         </div>
@@ -816,25 +816,25 @@ export default function App() {
       {/* CUSTOM MODAL (Substitui prompts e confirms bloqueados pelo WebView) */}
       {modal.show && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm px-5 animate-in fade-in duration-200">
-           <div className="bg-[#0f0f13] border border-white/10 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
-              <h3 className="text-lg font-bold text-white mb-2">
+           <div className="bg-[#1C1712] border border-white/10 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+              <h3 className="text-lg font-bold text-ivory mb-2">
                   {modal.type === 'delete' ? 'Eliminar Música' : modal.type === 'rename' ? 'Renomear Música' : 'Mover para Playlist'}
               </h3>
               {modal.type === 'delete' ? (
-                  <p className="text-gray-400 text-sm mb-6">Tem a certeza que deseja apagar "{modal.track?.name}" permanentemente?</p>
+                  <p className="text-ivory-dim text-sm mb-6">Tem a certeza que deseja apagar "{modal.track?.name}" permanentemente?</p>
               ) : (
                   <input 
                       type="text" 
                       value={modal.input} 
                       onChange={(e) => setModal({...modal, input: e.target.value})}
-                      className="w-full bg-[#070709] border border-white/10 rounded-xl px-4 py-3 text-white mb-6 outline-none focus:border-blue-500 transition-colors"
+                      className="w-full bg-[#0F0B08] border border-white/10 rounded-xl px-4 py-3 text-white mb-6 outline-none focus:border-copper-500 transition-colors"
                       placeholder={modal.type === 'rename' ? "Novo nome da música..." : "Nome da playlist (ex: Ensaios)"}
                       autoFocus
                   />
               )}
               <div className="flex gap-3">
-                  <button onClick={() => setModal({ show: false, type: '', track: null, input: '' })} className="flex-1 py-3 rounded-xl bg-[#1a1a24] text-gray-300 font-bold active:scale-95 transition-all">Cancelar</button>
-                  <button onClick={modal.type === 'delete' ? executeDelete : modal.type === 'rename' ? executeRename : executePlaylist} className={`flex-1 py-3 rounded-xl font-bold active:scale-95 transition-all ${modal.type === 'delete' ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'}`}>
+                  <button onClick={() => setModal({ show: false, type: '', track: null, input: '' })} className="flex-1 py-3 rounded-xl bg-[#241E17] text-ivory/90 font-bold active:scale-95 transition-all">Cancelar</button>
+                  <button onClick={modal.type === 'delete' ? executeDelete : modal.type === 'rename' ? executeRename : executePlaylist} className={`flex-1 py-3 rounded-xl font-bold active:scale-95 transition-all ${modal.type === 'delete' ? 'bg-red-600 text-white' : 'bg-copper-600 text-white'}`}>
                       Confirmar
                   </button>
               </div>
@@ -843,9 +843,9 @@ export default function App() {
       )}
 
       {/* CABEÇALHO */}
-      <header className="w-full max-w-md p-6 pt-safe-area flex justify-center items-center bg-[#0a0a0c]/80 backdrop-blur-xl sticky top-0 z-20">
-        <h1 className="text-xl font-black tracking-wide text-white flex items-center gap-2">
-          <Activity className="text-blue-500" size={22} /> AudioMIX
+      <header className="w-full max-w-md p-6 pt-safe-area flex justify-center items-center bg-[#14100D]/80 backdrop-blur-xl sticky top-0 z-20">
+        <h1 className="text-xl font-display font-black tracking-wide text-ivory flex items-center gap-2">
+          <Piano className="text-copper-500" size={22} /> AudioMIX
         </h1>
       </header>
 
@@ -855,49 +855,49 @@ export default function App() {
         {activeTab === 'studio' && (
           <div className="space-y-6 animate-in fade-in duration-300">
             {!file ? (
-              <label className="flex flex-col items-center justify-center w-full h-[22rem] rounded-[2rem] cursor-pointer bg-[#0f0f13] hover:bg-[#131318] transition-colors border border-white/5 shadow-xl">
+              <label className="flex flex-col items-center justify-center w-full h-[22rem] rounded-[2rem] cursor-pointer bg-[#1C1712] hover:bg-[#1C1712] transition-colors border border-white/5 shadow-xl">
                 <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                  <div className="w-20 h-20 bg-blue-500/10 rounded-full flex items-center justify-center mb-6 text-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.15)]">
+                  <div className="w-20 h-20 bg-copper-500/10 rounded-full flex items-center justify-center mb-6 text-copper-400 shadow-[0_0_20px_rgba(193,101,46,0.15)]">
                     <Upload size={32} />
                   </div>
-                  <h2 className="mb-2 text-lg text-white font-bold tracking-tight">Adicionar Áudio</h2>
-                  <p className="text-xs text-gray-500">Selecione uma música do dispositivo</p>
+                  <h2 className="mb-2 text-lg text-ivory font-bold tracking-tight">Adicionar Áudio</h2>
+                  <p className="text-xs text-ivory-dim">Selecione uma música do dispositivo</p>
                 </div>
                 <input type="file" accept="audio/*" className="hidden" onChange={handleFileUpload} disabled={isProcessing} />
               </label>
             ) : (
-              <div className="bg-[#0f0f13] p-6 rounded-[2rem] shadow-xl border border-white/5">
+              <div className="bg-[#1C1712] p-6 rounded-[2rem] shadow-xl border border-white/5">
                 
-                <div className="w-full h-24 bg-[#070709] rounded-2xl mb-6 flex items-center justify-center overflow-hidden border border-white/5 relative">
+                <div className="w-full h-24 bg-[#0F0B08] rounded-2xl mb-6 flex items-center justify-center overflow-hidden border border-white/5 relative">
                   <canvas ref={canvasRef} width="300" height="80" className="w-full h-full opacity-90" />
                 </div>
 
                 <div className="text-center mb-6">
-                  <h2 className="text-sm font-bold text-gray-100 truncate px-4">{fileName}</h2>
+                  <h2 className="text-sm font-bold text-ivory truncate px-4">{fileName}</h2>
                 </div>
 
                 <div className="mb-8">
-                  <div className="flex justify-between text-[10px] text-gray-400 font-bold mb-3">
+                  <div className="flex justify-between text-[10px] text-ivory-dim font-mono font-bold mb-3">
                     <span>{formatTime(currentTime)}</span>
                     <span>{formatTime(duration)}</span>
                   </div>
                   <input 
                     type="range" min="0" max={duration || 100} value={currentTime} 
                     onChange={(e) => seekTo(e.target.value)}
-                    className="w-full h-2 bg-[#1a1a24] rounded-lg appearance-none cursor-pointer accent-blue-500 mb-4"
+                    className="w-full h-2 bg-[#241E17] rounded-lg appearance-none cursor-pointer accent-copper-500 mb-4"
                   />
                   
-                  <div className="flex items-center justify-between bg-[#070709] p-2 rounded-xl border border-white/5">
+                  <div className="flex items-center justify-between bg-[#0F0B08] p-2 rounded-xl border border-white/5">
                     <div className="flex gap-2">
-                      <button onClick={() => setLoopA(currentTime)} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all active:scale-95 ${loopA !== null ? 'bg-blue-500 text-white shadow-lg' : 'bg-[#15151e] text-gray-400'}`}>
+                      <button onClick={() => setLoopA(currentTime)} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all active:scale-95 ${loopA !== null ? 'bg-copper-500 text-white shadow-lg' : 'bg-[#2E271D] text-ivory-dim'}`}>
                         {loopA !== null ? `A: ${formatTime(loopA)}` : 'Início'}
                       </button>
-                      <button onClick={() => setLoopB(currentTime)} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all active:scale-95 ${loopB !== null ? 'bg-blue-500 text-white shadow-lg' : 'bg-[#15151e] text-gray-400'}`}>
+                      <button onClick={() => setLoopB(currentTime)} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all active:scale-95 ${loopB !== null ? 'bg-copper-500 text-white shadow-lg' : 'bg-[#2E271D] text-ivory-dim'}`}>
                         {loopB !== null ? `B: ${formatTime(loopB)}` : 'Fim'}
                       </button>
                     </div>
                     {(loopA !== null || loopB !== null) && (
-                      <button onClick={() => {setLoopA(null); setLoopB(null);}} className="text-gray-500 hover:text-red-400 p-2 rounded-lg transition-colors">
+                      <button onClick={() => {setLoopA(null); setLoopB(null);}} className="text-ivory-dim hover:text-red-400 p-2 rounded-lg transition-colors">
                         <X size={18} />
                       </button>
                     )}
@@ -905,10 +905,10 @@ export default function App() {
                 </div>
 
                 <div className="flex justify-center mb-8 relative">
-                  <div className="absolute inset-0 bg-blue-500/10 blur-2xl rounded-full scale-125"></div>
+                  <div className="absolute inset-0 bg-copper-500/10 blur-2xl rounded-full scale-125"></div>
                   <button 
                     onClick={togglePlay} disabled={isProcessing || isPreparingPreview}
-                    className="relative w-20 h-20 flex items-center justify-center bg-blue-600 hover:bg-blue-500 active:scale-90 text-white rounded-full shadow-[0_10px_30px_rgba(59,130,246,0.3)] transition-all disabled:opacity-70"
+                    className="relative w-20 h-20 flex items-center justify-center bg-copper-600 hover:bg-copper-500 active:scale-90 text-white rounded-full shadow-[0_10px_30px_rgba(193,101,46,0.3)] transition-all disabled:opacity-70"
                   >
                     {isPreparingPreview ? (
                       <Loader2 size={28} className="animate-spin" />
@@ -920,45 +920,55 @@ export default function App() {
                   </button>
                 </div>
                 {isPreparingPreview && (
-                  <p className="text-center text-gray-500 text-xs -mt-6 mb-6">Aplicando tom (motor nativo)...</p>
+                  <p className="text-center text-ivory-dim text-xs -mt-6 mb-6">Aplicando tom (motor nativo)...</p>
                 )}
 
-                <div className="bg-[#070709] p-4 rounded-2xl mb-4 border border-white/5">
+                <div className="bg-[#0F0B08] p-4 rounded-2xl mb-4 border border-white/5">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <MicOff size={20} className={removeVocals ? 'text-blue-400' : 'text-gray-600'} />
-                      <h3 className="font-semibold text-sm text-gray-200">Atenuador de Voz</h3>
+                      <MicOff size={20} className={removeVocals ? 'text-copper-400' : 'text-ivory-faint'} />
+                      <h3 className="font-semibold text-sm text-ivory">Atenuador de Voz</h3>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input type="checkbox" className="sr-only peer" checked={removeVocals} onChange={() => setRemoveVocals(!removeVocals)} disabled={isProcessing} />
-                      <div className="w-11 h-6 bg-[#1a1a24] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+                      <div className="w-11 h-6 bg-[#241E17] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-copper-500"></div>
                     </label>
                   </div>
                 </div>
 
-                <div className="bg-[#070709] p-4 rounded-2xl border border-white/5 mb-6">
-                  <h3 className="font-semibold text-sm text-gray-200 mb-3">Ajuste de Tom</h3>
-                  <div className="grid grid-cols-7 gap-1">
+                <div className="bg-[#0F0B08] p-4 rounded-2xl border border-white/5 mb-6">
+                  <div className="flex items-baseline justify-between mb-3">
+                    <h3 className="font-semibold text-sm text-ivory">Ajuste de Tom</h3>
+                    <span className="text-[10px] text-ivory-faint font-mono uppercase tracking-wider">semitons</span>
+                  </div>
+                  <div className="flex gap-[3px] bg-[#0A0705] p-2 rounded-xl">
                     {[-3, -2, -1, 0, 1, 2, 3].map((val) => (
                       <button
                         key={val} onClick={() => setPitch(val)} disabled={isProcessing}
-                        className={`py-2.5 rounded-lg text-xs font-bold transition-all active:scale-90
-                          ${pitch === val ? 'bg-blue-500 text-white shadow-md' : 'bg-[#15151e] text-gray-400'}`}
+                        className={`relative flex-1 h-16 rounded-b-lg rounded-t-[3px] font-mono text-xs font-bold
+                          transition-all duration-100 active:translate-y-0.5
+                          flex flex-col items-center justify-end pb-2
+                          ${pitch === val
+                            ? 'bg-gradient-to-b from-copper-400 to-copper-600 text-[#1C1712] shadow-[0_1px_0_0_rgba(0,0,0,0.4)_inset,0_2px_6px_rgba(193,101,46,0.5)] translate-y-0.5'
+                            : 'bg-gradient-to-b from-ivory to-ivory/80 text-ink-900 shadow-[0_3px_0_0_#00000055,0_4px_8px_rgba(0,0,0,0.3)] hover:from-ivory'}`}
                       >
-                        {val > 0 ? `+${val}` : val === 0 ? '0' : val}
+                        {val === 0 && (
+                          <span className={`absolute top-2 w-1 h-1 rounded-full ${pitch === val ? 'bg-[#1C1712]/40' : 'bg-ink-900/30'}`} />
+                        )}
+                        {val > 0 ? `+${val}` : val}
                       </button>
                     ))}
                   </div>
                 </div>
 
                 {isProcessing ? (
-                  <div className="w-full bg-[#070709] rounded-2xl p-4 flex flex-col items-center border border-white/5">
-                    <div className="flex justify-between w-full text-xs font-bold text-blue-400 mb-2">
+                  <div className="w-full bg-[#0F0B08] rounded-2xl p-4 flex flex-col items-center border border-white/5">
+                    <div className="flex justify-between w-full text-xs font-bold text-copper-400 mb-2">
                       <span className="animate-pulse">A Renderizar...</span>
                       <span>{renderProgress}%</span>
                     </div>
-                    <div className="w-full bg-[#1a1a24] rounded-full h-1.5">
-                      <div className="bg-blue-500 h-full rounded-full transition-all duration-300" style={{ width: `${renderProgress}%` }}></div>
+                    <div className="w-full bg-[#241E17] rounded-full h-1.5">
+                      <div className="bg-copper-500 h-full rounded-full transition-all duration-300" style={{ width: `${renderProgress}%` }}></div>
                     </div>
                   </div>
                 ) : (
@@ -975,54 +985,54 @@ export default function App() {
         {activeTab === 'pro' && (
           <div className="space-y-6 animate-in fade-in duration-300">
             {!file ? (
-              <div className="text-center py-24 px-6 bg-[#0f0f13] rounded-[2rem] border border-white/5">
-                <Sliders className="w-10 h-10 text-gray-700 mx-auto mb-4" />
-                <h3 className="text-white font-bold mb-2">Mesa de Mistura</h3>
-                <p className="text-xs text-gray-500 mb-6">Carregue um ficheiro no menu Básico.</p>
+              <div className="text-center py-24 px-6 bg-[#1C1712] rounded-[2rem] border border-white/5">
+                <Sliders className="w-10 h-10 text-ivory-faint mx-auto mb-4" />
+                <h3 className="text-ivory font-bold mb-2">Mesa de Mistura</h3>
+                <p className="text-xs text-ivory-dim mb-6">Carregue um ficheiro no menu Básico.</p>
               </div>
             ) : (
-              <div className="bg-[#0f0f13] p-6 rounded-[2rem] shadow-xl border border-white/5">
-                <h2 className="text-lg font-bold mb-8 text-white">Equalizador</h2>
+              <div className="bg-[#1C1712] p-6 rounded-[2rem] shadow-xl border border-white/5">
+                <h2 className="text-lg font-bold mb-8 text-ivory">Equalizador</h2>
 
                 <div className="space-y-8 mb-10">
                   <div>
                     <div className="flex justify-between mb-3">
-                      <span className="font-semibold text-sm text-gray-300">Graves</span>
-                      <span className="text-xs text-blue-400 font-bold">{bass} dB</span>
+                      <span className="font-semibold text-sm text-ivory/90">Graves</span>
+                      <span className="text-xs text-copper-400 font-bold">{bass} dB</span>
                     </div>
-                    <input type="range" min="-15" max="15" value={bass} onChange={(e) => setBass(Number(e.target.value))} className="w-full h-1.5 bg-[#1a1a24] rounded-lg appearance-none accent-blue-500"/>
+                    <input type="range" min="-15" max="15" value={bass} onChange={(e) => setBass(Number(e.target.value))} className="w-full h-1.5 bg-[#241E17] rounded-lg appearance-none accent-copper-500"/>
                   </div>
                   
                   <div>
                     <div className="flex justify-between mb-3">
-                      <span className="font-semibold text-sm text-gray-300">Médios</span>
-                      <span className="text-xs text-blue-400 font-bold">{mid} dB</span>
+                      <span className="font-semibold text-sm text-ivory/90">Médios</span>
+                      <span className="text-xs text-copper-400 font-bold">{mid} dB</span>
                     </div>
-                    <input type="range" min="-15" max="15" value={mid} onChange={(e) => setMid(Number(e.target.value))} className="w-full h-1.5 bg-[#1a1a24] rounded-lg appearance-none accent-blue-500"/>
+                    <input type="range" min="-15" max="15" value={mid} onChange={(e) => setMid(Number(e.target.value))} className="w-full h-1.5 bg-[#241E17] rounded-lg appearance-none accent-copper-500"/>
                   </div>
 
                   <div>
                     <div className="flex justify-between mb-3">
-                      <span className="font-semibold text-sm text-gray-300">Agudos</span>
-                      <span className="text-xs text-blue-400 font-bold">{treble} dB</span>
+                      <span className="font-semibold text-sm text-ivory/90">Agudos</span>
+                      <span className="text-xs text-copper-400 font-bold">{treble} dB</span>
                     </div>
-                    <input type="range" min="-15" max="15" value={treble} onChange={(e) => setTreble(Number(e.target.value))} className="w-full h-1.5 bg-[#1a1a24] rounded-lg appearance-none accent-blue-500"/>
+                    <input type="range" min="-15" max="15" value={treble} onChange={(e) => setTreble(Number(e.target.value))} className="w-full h-1.5 bg-[#241E17] rounded-lg appearance-none accent-copper-500"/>
                   </div>
                 </div>
 
-                <div className="bg-[#070709] p-4 rounded-2xl border border-white/5 mb-6">
+                <div className="bg-[#0F0B08] p-4 rounded-2xl border border-white/5 mb-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="font-semibold text-sm text-gray-200">Compressor / Mastering</h3>
+                      <h3 className="font-semibold text-sm text-ivory">Compressor / Mastering</h3>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input type="checkbox" className="sr-only peer" checked={compressor} onChange={() => setCompressor(!compressor)} />
-                      <div className="w-11 h-6 bg-[#1a1a24] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+                      <div className="w-11 h-6 bg-[#241E17] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-copper-500"></div>
                     </label>
                   </div>
                 </div>
 
-                <button onClick={() => { setBass(0); setMid(0); setTreble(0); setCompressor(false); }} className="w-full py-3.5 bg-[#1a1a24] active:scale-95 text-gray-300 rounded-2xl text-sm font-bold transition-all">
+                <button onClick={() => { setBass(0); setMid(0); setTreble(0); setCompressor(false); }} className="w-full py-3.5 bg-[#241E17] active:scale-95 text-ivory/90 rounded-2xl text-sm font-bold transition-all">
                   Repor Padrão
                 </button>
               </div>
@@ -1038,7 +1048,7 @@ export default function App() {
                 {playlistsDisponiveis.map(pl => (
                   <button 
                     key={pl} onClick={() => setActivePlaylist(pl)}
-                    className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold transition-all active:scale-95 ${activePlaylist === pl ? 'bg-blue-500 text-white' : 'bg-[#0f0f13] text-gray-400 border border-white/5'}`}
+                    className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold transition-all active:scale-95 ${activePlaylist === pl ? 'bg-copper-500 text-white' : 'bg-[#1C1712] text-ivory-dim border border-white/5'}`}
                   >
                     {pl}
                   </button>
@@ -1047,36 +1057,36 @@ export default function App() {
             )}
 
             {bibliotecaFiltrada.length === 0 ? (
-              <div className="text-center py-24 px-6 bg-[#0f0f13] rounded-[2rem] border border-white/5">
-                <FolderDown className="w-10 h-10 text-gray-700 mx-auto mb-4" />
-                <h3 className="text-gray-200 font-bold mb-1">Sem Gravações</h3>
-                <p className="text-xs text-gray-500">O que exportar irá aparecer aqui.</p>
+              <div className="text-center py-24 px-6 bg-[#1C1712] rounded-[2rem] border border-white/5">
+                <FolderDown className="w-10 h-10 text-ivory-faint mx-auto mb-4" />
+                <h3 className="text-ivory font-bold mb-1">Sem Gravações</h3>
+                <p className="text-xs text-ivory-dim">O que exportar irá aparecer aqui.</p>
               </div>
             ) : (
               bibliotecaFiltrada.map((track) => (
-                <div key={track.id} className="bg-[#0f0f13] p-5 rounded-[1.5rem] border border-white/5 shadow-lg">
+                <div key={track.id} className="bg-[#1C1712] p-5 rounded-[1.5rem] border border-white/5 shadow-lg">
                   <div className="flex justify-between items-start mb-4">
                     <div className="flex-1 min-w-0 pr-2">
-                      <h3 className="font-bold text-sm text-gray-100 truncate">{track.name}</h3>
+                      <h3 className="font-bold text-sm text-ivory truncate">{track.name}</h3>
                       <div className="flex gap-2 mt-1.5">
-                        <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">{track.details}</span>
+                        <span className="text-[9px] font-bold text-ivory-dim uppercase tracking-wider">{track.details}</span>
                       </div>
                     </div>
-                    <button onClick={() => setModal({ show: true, type: 'delete', track: track, input: '' })} className="text-gray-600 hover:text-red-400 transition-colors">
+                    <button onClick={() => setModal({ show: true, type: 'delete', track: track, input: '' })} className="text-ivory-faint hover:text-red-400 transition-colors">
                       <Trash2 size={18} />
                     </button>
                   </div>
                   
-                  <audio controls src={track.url} className="w-full h-10 mb-4 rounded-lg bg-[#070709]" />
+                  <audio controls src={track.url} className="w-full h-10 mb-4 rounded-lg bg-[#0F0B08]" />
                   
                   <div className="grid grid-cols-3 gap-2">
-                    <button onClick={() => setModal({ show: true, type: 'playlist', track: track, input: track.playlist || '' })} className="py-3 bg-[#1a1a24] active:scale-95 rounded-xl flex items-center justify-center gap-1.5 text-xs font-semibold text-gray-300 transition-all">
+                    <button onClick={() => setModal({ show: true, type: 'playlist', track: track, input: track.playlist || '' })} className="py-3 bg-[#241E17] active:scale-95 rounded-xl flex items-center justify-center gap-1.5 text-xs font-semibold text-ivory/90 transition-all">
                       <ListMusic size={14} /> Mover
                     </button>
-                    <button onClick={() => setModal({ show: true, type: 'rename', track: track, input: track.name })} className="py-3 bg-[#1a1a24] active:scale-95 rounded-xl flex items-center justify-center gap-1.5 text-xs font-semibold text-gray-300 transition-all">
+                    <button onClick={() => setModal({ show: true, type: 'rename', track: track, input: track.name })} className="py-3 bg-[#241E17] active:scale-95 rounded-xl flex items-center justify-center gap-1.5 text-xs font-semibold text-ivory/90 transition-all">
                       <Edit2 size={14} /> Renomear
                     </button>
-                    <button onClick={() => handleExport(track)} className="py-3 bg-blue-600 active:bg-blue-500 text-white active:scale-95 rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold transition-all shadow-[0_4px_15px_rgba(37,99,235,0.3)]">
+                    <button onClick={() => handleExport(track)} className="py-3 bg-copper-600 active:bg-copper-500 text-white active:scale-95 rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold transition-all shadow-[0_4px_15px_rgba(193,101,46,0.3)]">
                       <Share2 size={14} /> Partilhar
                     </button>
                   </div>
@@ -1090,50 +1100,50 @@ export default function App() {
         {activeTab === 'credits' && (
           <div className="space-y-6 animate-in fade-in duration-300 flex flex-col items-center justify-center h-full pt-6 pb-6 overflow-y-auto">
             <div className="text-center w-full max-w-sm">
-                <div className="w-24 h-24 bg-[#0f0f13] border border-white/5 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-xl">
-                    <Activity size={40} className="text-blue-500" />
+                <div className="w-24 h-24 bg-[#1C1712] border border-white/5 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-xl">
+                    <Piano size={40} className="text-copper-500" />
                 </div>
-                <h2 className="text-2xl font-black text-white mb-1 tracking-wide">AudioMIX</h2>
-                <p className="text-gray-500 text-xs uppercase tracking-widest mb-3">Versão {APP_VERSION}</p>
-                <p className="text-gray-400 text-xs leading-relaxed mb-8 px-2">
+                <h2 className="text-2xl font-display font-black text-ivory mb-1 tracking-wide">AudioMIX</h2>
+                <p className="text-ivory-dim text-xs uppercase tracking-widest mb-3">Versão {APP_VERSION}</p>
+                <p className="text-ivory-dim text-xs leading-relaxed mb-8 px-2">
                     Ajusta o tom de qualquer música sem alterar a velocidade,
                     pra você encontrar a extensão vocal ideal pra cantar.
                     Processamento 100% local — nenhum áudio sai do seu aparelho.
                 </p>
 
-                <div className="bg-[#0f0f13] p-6 rounded-3xl border border-white/5 text-left shadow-lg">
-                    <p className="text-gray-600 text-[10px] uppercase tracking-widest font-bold mb-1">Criador</p>
-                    <p className="text-gray-200 font-bold text-sm mb-6">Kauã Mazur dos Reis</p>
+                <div className="bg-[#1C1712] p-6 rounded-3xl border border-white/5 text-left shadow-lg">
+                    <p className="text-ivory-faint text-[10px] uppercase tracking-widest font-bold mb-1">Criador</p>
+                    <p className="text-ivory font-bold text-sm mb-6">Kauã Mazur dos Reis</p>
 
-                    <p className="text-gray-600 text-[10px] uppercase tracking-widest font-bold mb-1">Contacto</p>
-                    <a href="mailto:kmzsuportt1@gmail.com" className="text-blue-400 font-bold text-sm">kmzsuportt1@gmail.com</a>
+                    <p className="text-ivory-faint text-[10px] uppercase tracking-widest font-bold mb-1">Contacto</p>
+                    <a href="mailto:kmzsuportt1@gmail.com" className="text-copper-400 font-bold text-sm">kmzsuportt1@gmail.com</a>
                 </div>
 
-                <div className="bg-[#0f0f13] p-6 rounded-3xl border border-white/5 text-left shadow-lg mt-4">
-                    <p className="text-gray-600 text-[10px] uppercase tracking-widest font-bold mb-4">Bibliotecas de código aberto</p>
+                <div className="bg-[#1C1712] p-6 rounded-3xl border border-white/5 text-left shadow-lg mt-4">
+                    <p className="text-ivory-faint text-[10px] uppercase tracking-widest font-bold mb-4">Bibliotecas de código aberto</p>
 
                     <div className="mb-4">
-                      <p className="text-gray-300 text-xs font-semibold">SoundTouch (motor de pitch shift)</p>
-                      <p className="text-gray-600 text-[11px]">Licença LGPL-2.1 · Olli Parviainen</p>
+                      <p className="text-ivory/90 text-xs font-semibold">SoundTouch (motor de pitch shift)</p>
+                      <p className="text-ivory-faint text-[11px]">Licença LGPL-2.1 · Olli Parviainen</p>
                     </div>
 
                     <div className="mb-4">
-                      <p className="text-gray-300 text-xs font-semibold">lamejs (codificador MP3)</p>
-                      <p className="text-gray-600 text-[11px]">Licença LGPL-3.0 · zhuker/lamejs</p>
+                      <p className="text-ivory/90 text-xs font-semibold">lamejs (codificador MP3)</p>
+                      <p className="text-ivory-faint text-[11px]">Licença LGPL-3.0 · zhuker/lamejs</p>
                     </div>
 
                     <div className="mb-4">
-                      <p className="text-gray-300 text-xs font-semibold">Capacitor</p>
-                      <p className="text-gray-600 text-[11px]">Licença MIT · Ionic</p>
+                      <p className="text-ivory/90 text-xs font-semibold">Capacitor</p>
+                      <p className="text-ivory-faint text-[11px]">Licença MIT · Ionic</p>
                     </div>
 
                     <div>
-                      <p className="text-gray-300 text-xs font-semibold">React &amp; Lucide Icons</p>
-                      <p className="text-gray-600 text-[11px]">Licença MIT</p>
+                      <p className="text-ivory/90 text-xs font-semibold">React &amp; Lucide Icons</p>
+                      <p className="text-ivory-faint text-[11px]">Licença MIT</p>
                     </div>
                 </div>
 
-                <p className="text-gray-700 text-[10px] mt-6">
+                <p className="text-ivory-faint text-[10px] mt-6">
                     Feito com processamento 100% offline · Nenhum dado sai do aparelho
                 </p>
             </div>
@@ -1142,22 +1152,22 @@ export default function App() {
       </main>
 
       {/* Navegação Inferior */}
-      <nav className="fixed bottom-0 w-full max-w-md bg-[#070709]/95 backdrop-blur-xl border-t border-white/5 flex justify-between px-3 py-2 pb-safe-area z-30">
-        <button onClick={() => setActiveTab('studio')} className={`flex flex-col items-center justify-center gap-1 p-2 w-1/4 rounded-xl transition-all active:scale-90 ${activeTab === 'studio' ? 'text-white' : 'text-gray-600'}`}>
-          <Settings2 size={20} className={activeTab === 'studio' ? 'text-blue-500' : ''} />
+      <nav className="fixed bottom-0 w-full max-w-md bg-[#0F0B08]/95 backdrop-blur-xl border-t border-white/5 flex justify-between px-3 py-2 pb-safe-area z-30">
+        <button onClick={() => setActiveTab('studio')} className={`flex flex-col items-center justify-center gap-1 p-2 w-1/4 rounded-xl transition-all active:scale-90 ${activeTab === 'studio' ? 'text-white' : 'text-ivory-faint'}`}>
+          <Settings2 size={20} className={activeTab === 'studio' ? 'text-copper-500' : ''} />
           <span className="text-[10px] font-semibold">Básico</span>
         </button>
-        <button onClick={() => setActiveTab('pro')} className={`flex flex-col items-center justify-center gap-1 p-2 w-1/4 rounded-xl transition-all active:scale-90 ${activeTab === 'pro' ? 'text-white' : 'text-gray-600'}`}>
-          <Sliders size={20} className={activeTab === 'pro' ? 'text-blue-500' : ''} />
+        <button onClick={() => setActiveTab('pro')} className={`flex flex-col items-center justify-center gap-1 p-2 w-1/4 rounded-xl transition-all active:scale-90 ${activeTab === 'pro' ? 'text-white' : 'text-ivory-faint'}`}>
+          <Sliders size={20} className={activeTab === 'pro' ? 'text-copper-500' : ''} />
           <span className="text-[10px] font-semibold">Mixer</span>
         </button>
-        <button onClick={() => setActiveTab('library')} className={`flex flex-col items-center justify-center gap-1 p-2 w-1/4 rounded-xl transition-all active:scale-90 relative ${activeTab === 'library' ? 'text-white' : 'text-gray-600'}`}>
-          <FolderDown size={20} className={activeTab === 'library' ? 'text-blue-500' : ''} />
+        <button onClick={() => setActiveTab('library')} className={`flex flex-col items-center justify-center gap-1 p-2 w-1/4 rounded-xl transition-all active:scale-90 relative ${activeTab === 'library' ? 'text-white' : 'text-ivory-faint'}`}>
+          <FolderDown size={20} className={activeTab === 'library' ? 'text-copper-500' : ''} />
           <span className="text-[10px] font-semibold">Salvos</span>
-          {library.length > 0 && <span className="absolute top-2 right-6 w-2 h-2 bg-blue-500 rounded-full"></span>}
+          {library.length > 0 && <span className="absolute top-2 right-6 w-2 h-2 bg-copper-500 rounded-full"></span>}
         </button>
-        <button onClick={() => setActiveTab('credits')} className={`flex flex-col items-center justify-center gap-1 p-2 w-1/4 rounded-xl transition-all active:scale-90 ${activeTab === 'credits' ? 'text-white' : 'text-gray-600'}`}>
-          <User size={20} className={activeTab === 'credits' ? 'text-blue-500' : ''} />
+        <button onClick={() => setActiveTab('credits')} className={`flex flex-col items-center justify-center gap-1 p-2 w-1/4 rounded-xl transition-all active:scale-90 ${activeTab === 'credits' ? 'text-white' : 'text-ivory-faint'}`}>
+          <User size={20} className={activeTab === 'credits' ? 'text-copper-500' : ''} />
           <span className="text-[10px] font-semibold">Créditos</span>
         </button>
       </nav>
