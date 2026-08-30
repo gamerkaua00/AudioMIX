@@ -1,10 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { version as APP_VERSION } from '../package.json';
 import { 
   Upload, Play, Pause, Download, Share2, Edit2, Trash2, 
   MicOff, Settings2, FolderDown, Activity, Check,
   AlertCircle, Sliders, Scissors, Plus, ListMusic, X, User, Loader2
 } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 import SoundTouchPitch from 'capacitor-soundtouch-pitch';
 import * as lamejs from '@breezystack/lamejs';
 
@@ -101,6 +104,22 @@ function base64ToFloat32(base64) {
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return new Float32Array(bytes.buffer);
+}
+
+// Converte um Blob em string base64 (sem o prefixo "data:...;base64,"),
+// formato que o plugin Filesystem do Capacitor espera para escrever
+// arquivos binários no dispositivo.
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result;
+      const base64 = result.substring(result.indexOf(',') + 1);
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
 }
 
 // ==========================================
@@ -308,6 +327,12 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    if (file && audioBufferRef.current) {
+      drawStaticWaveform();
+    }
+  }, [file]);
+
   const applyAudioRouting = (ctx, source, isOffline = false) => {
     // O pitch NÃO é mais simulado via playbackRate em lugar nenhum (nem na
     // exportação, nem na pré-escuta): o buffer que chega aqui já foi
@@ -387,6 +412,43 @@ export default function App() {
     }
 
     return finalOutput;
+  };
+
+  // Desenha uma onda estática (picos de amplitude) assim que o áudio é
+  // carregado, ANTES de tocar. Sem isso, a área do visualizador ficava um
+  // retângulo preto vazio até o utilizador apertar o play, parecendo que
+  // o app tinha travado ou não tinha carregado a música.
+  const drawStaticWaveform = () => {
+    if (!canvasRef.current || !audioBufferRef.current) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+    const centerY = height / 2;
+
+    const rawData = audioBufferRef.current.getChannelData(0);
+    const numBars = 80;
+    const samplesPerBar = Math.floor(rawData.length / numBars);
+    const barWidth = width / numBars;
+
+    ctx.clearRect(0, 0, width, height);
+
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, '#38bdf8');
+    gradient.addColorStop(0.5, '#3b82f6');
+    gradient.addColorStop(1, '#818cf8');
+    ctx.fillStyle = gradient;
+
+    for (let i = 0; i < numBars; i++) {
+      let peak = 0;
+      const start = i * samplesPerBar;
+      for (let j = 0; j < samplesPerBar; j++) {
+        const abs = Math.abs(rawData[start + j] || 0);
+        if (abs > peak) peak = abs;
+      }
+      const barHeight = Math.max(2, peak * height * 0.9);
+      ctx.fillRect(i * barWidth, centerY - barHeight / 2, Math.max(1, barWidth - 1), barHeight);
+    }
   };
 
   const drawVisualizer = () => {
@@ -524,6 +586,7 @@ export default function App() {
       setIsPlaying(false);
     }
     if(animationRef.current) cancelAnimationFrame(animationRef.current);
+    drawStaticWaveform();
   };
 
   const togglePlay = () => {
@@ -638,24 +701,35 @@ export default function App() {
   // --- SOLUÇÃO DE EXPORTAÇÃO E PARTILHA NATIVA UNIFICADA ---
   const handleExport = async (track) => {
     try {
-      const file = new File([track.blob], `${track.name}.mp3`, { type: 'audio/mpeg' });
-      
-      // No Android WebView, o navigator.share abre a aba de partilha real,
-      // permitindo ao utilizador "Guardar no dispositivo" ou enviar para WhatsApp.
-      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ 
-          title: track.name, 
+      const fileName = `${track.name}.mp3`;
+
+      if (Capacitor.isNativePlatform()) {
+        // App Android de verdade: escreve o MP3 na pasta de cache do app e
+        // abre o painel de partilha NATIVO do sistema (WhatsApp, Telegram,
+        // Bluetooth, "Guardar no dispositivo", etc). Isso é muito mais
+        // confiável do que a Web Share API dentro de uma WebView, que
+        // frequentemente nem suporta partilha de arquivos.
+        const base64Data = await blobToBase64(track.blob);
+        const written = await Filesystem.writeFile({
+          path: fileName,
+          data: base64Data,
+          directory: Directory.Cache,
+        });
+
+        await Share.share({
+          title: track.name,
           text: 'Música editada no AudioMIX',
-          files: [file] 
+          url: written.uri,
+          dialogTitle: 'Partilhar música',
         });
         showToast("Ação concluída com sucesso!");
       } else {
-        // Fallback seguro para desktop / navegadores que não suportem Share
+        // Navegador (dev/preview): baixa o arquivo diretamente.
         const blobUrl = URL.createObjectURL(track.blob);
         const a = document.createElement('a');
         a.style.display = 'none';
         a.href = blobUrl;
-        a.download = `${track.name}.mp3`;
+        a.download = fileName;
         document.body.appendChild(a);
         a.click();
         setTimeout(() => {
@@ -665,10 +739,9 @@ export default function App() {
         showToast("Transferência iniciada!");
       }
     } catch (err) {
-      if (err.name !== 'AbortError') {
-        console.error("Erro na partilha:", err);
-        showToast("Erro ao exportar o ficheiro.", "error");
-      }
+      if (err.message && err.message.toLowerCase().includes('cancel')) return; // usuário cancelou o painel, não é erro
+      console.error("Erro na partilha:", err);
+      showToast(`Erro ao partilhar: ${err.message || err}`, "error");
     }
   };
 
@@ -1015,14 +1088,19 @@ export default function App() {
 
         {/* ABA 4: CRÉDITOS */}
         {activeTab === 'credits' && (
-          <div className="space-y-6 animate-in fade-in duration-300 flex flex-col items-center justify-center h-full pt-10">
+          <div className="space-y-6 animate-in fade-in duration-300 flex flex-col items-center justify-center h-full pt-6 pb-6 overflow-y-auto">
             <div className="text-center w-full max-w-sm">
                 <div className="w-24 h-24 bg-[#0f0f13] border border-white/5 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-xl">
                     <Activity size={40} className="text-blue-500" />
                 </div>
                 <h2 className="text-2xl font-black text-white mb-1 tracking-wide">AudioMIX</h2>
-                <p className="text-gray-500 text-xs uppercase tracking-widest mb-10">Versão 1.0</p>
-                
+                <p className="text-gray-500 text-xs uppercase tracking-widest mb-3">Versão {APP_VERSION}</p>
+                <p className="text-gray-400 text-xs leading-relaxed mb-8 px-2">
+                    Ajusta o tom de qualquer música sem alterar a velocidade,
+                    pra você encontrar a extensão vocal ideal pra cantar.
+                    Processamento 100% local — nenhum áudio sai do seu aparelho.
+                </p>
+
                 <div className="bg-[#0f0f13] p-6 rounded-3xl border border-white/5 text-left shadow-lg">
                     <p className="text-gray-600 text-[10px] uppercase tracking-widest font-bold mb-1">Criador</p>
                     <p className="text-gray-200 font-bold text-sm mb-6">Kauã Mazur dos Reis</p>
@@ -1032,10 +1110,32 @@ export default function App() {
                 </div>
 
                 <div className="bg-[#0f0f13] p-6 rounded-3xl border border-white/5 text-left shadow-lg mt-4">
-                    <p className="text-gray-600 text-[10px] uppercase tracking-widest font-bold mb-3">Bibliotecas de código aberto</p>
-                    <p className="text-gray-300 text-xs font-semibold">lamejs (codificador MP3)</p>
-                    <p className="text-gray-600 text-[11px] mb-1">Licença LGPL-3.0 · zhuker/lamejs</p>
+                    <p className="text-gray-600 text-[10px] uppercase tracking-widest font-bold mb-4">Bibliotecas de código aberto</p>
+
+                    <div className="mb-4">
+                      <p className="text-gray-300 text-xs font-semibold">SoundTouch (motor de pitch shift)</p>
+                      <p className="text-gray-600 text-[11px]">Licença LGPL-2.1 · Olli Parviainen</p>
+                    </div>
+
+                    <div className="mb-4">
+                      <p className="text-gray-300 text-xs font-semibold">lamejs (codificador MP3)</p>
+                      <p className="text-gray-600 text-[11px]">Licença LGPL-3.0 · zhuker/lamejs</p>
+                    </div>
+
+                    <div className="mb-4">
+                      <p className="text-gray-300 text-xs font-semibold">Capacitor</p>
+                      <p className="text-gray-600 text-[11px]">Licença MIT · Ionic</p>
+                    </div>
+
+                    <div>
+                      <p className="text-gray-300 text-xs font-semibold">React &amp; Lucide Icons</p>
+                      <p className="text-gray-600 text-[11px]">Licença MIT</p>
+                    </div>
                 </div>
+
+                <p className="text-gray-700 text-[10px] mt-6">
+                    Feito com processamento 100% offline · Nenhum dado sai do aparelho
+                </p>
             </div>
           </div>
         )}
